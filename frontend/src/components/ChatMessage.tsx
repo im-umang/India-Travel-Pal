@@ -1,0 +1,574 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Message } from '@/context/ChatContext';
+import { useChat } from '@/context/ChatContext';
+import {
+  speak,
+  stopSpeaking,
+  pauseSpeaking,
+  resumeSpeaking,
+  isPaused as isSpeakingPaused,
+  getCurrentSpeakingId,
+  setSpeakingId,
+  detectLanguage,
+  registerOnSpeakStart,
+  registerOnSpeakEnd,
+  unregisterOnSpeakStart,
+  unregisterOnSpeakEnd
+} from '@/lib/voiceService';
+import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Bot, Volume2, VolumeX, Pencil, Trash2, StopCircle } from 'lucide-react';
+import StructuredResponse from './travel/StructuredResponse';
+import StructuredCards from './travel/StructuredCards';
+
+interface ChatMessageProps {
+  message: Message;
+}
+
+/**
+ * ChatMessage — Premium India Travel Pal message bubble
+ * Features: line-by-line TTS with highlight, structured content, edit/delete
+ */
+const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
+  const isBot = message.sender === 'bot';
+  const { deleteMessage, setEditingMessage, isTyping, lastBotMessageId, clearLastBotMessageId } = useChat();
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const speakingRef = useRef(false);
+
+  const resetSpeech = React.useCallback(() => {
+    speakingRef.current = false;
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setHighlightIndex(null);
+  }, []);
+
+  // Sync visual state with global speaker state
+  React.useEffect(() => {
+    const checkState = () => {
+      setIsSpeaking(getCurrentSpeakingId() === message.id);
+    };
+
+    // Initial check
+    checkState();
+
+    registerOnSpeakStart(checkState);
+    registerOnSpeakEnd(checkState);
+
+    const interval = setInterval(() => {
+        setIsPaused(isSpeakingPaused());
+    }, 200);
+    
+    return () => {
+      clearInterval(interval);
+      unregisterOnSpeakStart(checkState);
+      unregisterOnSpeakEnd(checkState);
+    };
+  }, [message.id]);
+
+  // ── Unified Source of Truth for Voice & Highlights ──
+  const getSpeakableSegments = React.useCallback((rawText: any, includeStructuredData = true): string[] => {
+    const tryParse = (raw: any): any => {
+      if (raw && typeof raw === 'object') return raw;
+      if (typeof raw !== 'string') return null;
+      const t = raw.trim();
+      const m = t.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      const c = m ? m[1].trim() : t;
+      if (!c.startsWith('{') && !c.startsWith('[')) return null;
+      try { return JSON.parse(c); } catch (_) {
+        try { return JSON.parse(c.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')); } catch (_) { return null; }
+      }
+    };
+    
+    const content = tryParse(rawText);
+    const parts: string[] = [];
+    let nextStepPart = "";
+
+    // 1. Primary Text (Reply/Summary)
+    let rawReply = (content?.reply || content?.message || content?.summary || 
+      (typeof rawText === 'string' ? rawText : ''))
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\*{1,3}(.*?)\*{1,3}/gs, '$1') // Clean bold/italic
+      .trim();
+
+    // -- Truncate rawReply if it contains the itinerary to avoid double-speaking/displaying --
+    const hasItinerary = content?.itinerary && Array.isArray(content.itinerary) && content.itinerary.length > 0;
+    if (hasItinerary) {
+      const day1Match = rawReply.match(/Day\s*1|Day-1|Day\s*01/i);
+      if (day1Match && day1Match.index !== undefined) {
+        rawReply = rawReply.substring(0, day1Match.index).trim();
+        // Remove trailing "Here is your itinerary:" style phrases if they end the intro
+        rawReply = rawReply.replace(/(?:Here is|Here's|Proposed|Below is|Check out).*?:$/i, '').trim();
+      }
+    }
+
+    // -- ISOLATE NEXT STEP GUIDANCE (Should be spoken last) --
+    const guidancePatterns = [
+      /(\bAb next step.*)$/i,
+      /(\bNext step ke liye.*)$/i,
+      /(\bAb aap aage.*)$/i,
+      /(\bKya aap.*)$/i,
+      /(\bKya main.*)$/i
+    ];
+
+    for (const pattern of guidancePatterns) {
+      const match = rawReply.match(pattern);
+      if (match) {
+        nextStepPart = match[0];
+        rawReply = rawReply.replace(nextStepPart, '').trim();
+        break;
+      }
+    }
+
+    // 0. Step Indicator announcement
+    const detectedLang = content?.lang || message.language || 'en';
+    if (content?.current_step) {
+      const stepText = detectedLang === 'hi' 
+        ? `चरण ${content.current_step}.` 
+        : `Step ${content.current_step} of 5.`;
+      parts.push(stepText);
+    }
+
+    if (rawReply) parts.push(rawReply);
+
+    // -- 2. ITINERARY DATA (If requested for TTS or full display) --
+    if (includeStructuredData && hasItinerary) {
+      content.itinerary.forEach((day: any) => {
+        const dayLabel = detectedLang === 'hi' ? `दिन ${day.day}` : `Day ${day.day}`;
+        parts.push(`${dayLabel}: ${day.title}`);
+        
+        if (day.activities && Array.isArray(day.activities)) {
+          day.activities.forEach((act: string) => {
+            parts.push(act);
+          });
+        }
+        
+        if (day.tip) {
+          const tipLabel = detectedLang === 'hi' ? `टिप` : `Tip`;
+          parts.push(`${tipLabel}: ${day.tip}`);
+        }
+      });
+    }
+
+    // 3. Add isolated Next Step to the very end
+    if (nextStepPart) parts.push(nextStepPart);
+
+    // Split into sentences / segments
+    const finalSentences: string[] = [];
+    
+    parts.forEach(part => {
+      // Split each part into sentences for more granular highlighting
+      const subSentences = part.split(/([.!?।])\s+/)
+        .reduce((acc: string[], val: string, i: number) => {
+          if (i % 2 === 0) acc.push(val);
+          else acc[acc.length - 1] += val;
+          return acc;
+        }, [])
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+        
+      finalSentences.push(...subSentences);
+    });
+    
+    return finalSentences;
+  }, [message.language, message.id]);
+
+  // ── New Granular TTS reader (Sentence by Sentence) ──
+  const startReading = (sentences: string[], lang: string) => {
+    if (getCurrentSpeakingId() === message.id) {
+       if (isSpeakingPaused()) {
+         resumeSpeaking();
+         setIsPaused(false);
+         return;
+       }
+       pauseSpeaking();
+       setIsPaused(true);
+       return;
+    }
+    stopSpeaking();
+    
+    if (sentences.length === 0) return;
+
+    speakingRef.current = true;
+    setIsSpeaking(true);
+    setIsPaused(false);
+    setHighlightIndex(0);
+    setSpeakingId(message.id, resetSpeech);
+
+    let currentIndex = 0;
+    const speakNext = () => {
+      if (!speakingRef.current || getCurrentSpeakingId() !== message.id) {
+        resetSpeech();
+        return;
+      }
+      if (currentIndex >= sentences.length) {
+        setSpeakingId(null);
+        speakingRef.current = false;
+        setIsSpeaking(false);
+        setHighlightIndex(null);
+        return;
+      }
+      setHighlightIndex(currentIndex);
+      
+      const el = document.getElementById(`line-${message.id}-${currentIndex}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      const sentenceText = sentences[currentIndex];
+      speak(sentenceText, lang, () => {
+        currentIndex++;
+        setTimeout(speakNext, 10);
+      }, currentIndex === 0);
+    };
+    speakNext();
+  };
+
+  const handleSpeak = useCallback(() => {
+    const sentences = getSpeakableSegments(message.text);
+    const lang = detectLanguage(sentences.join(' '), message.language);
+    startReading(sentences, lang);
+  }, [message.id, message.text, message.language, getSpeakableSegments]);
+
+  // ── Auto-speak trigger for NEW messages ──
+  useEffect(() => {
+    if (isBot && lastBotMessageId === message.id) {
+      // Small timeout to ensure component is fully rendered
+      const timer = setTimeout(() => {
+        handleSpeak();
+        clearLastBotMessageId();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isBot, lastBotMessageId, message.id, handleSpeak, clearLastBotMessageId]);
+
+  const time = new Date(message.timestamp).toLocaleTimeString('en-IN', {
+    hour: '2-digit', minute: '2-digit'
+  });
+
+  // ── Parse & render message content ──
+  const renderContent = () => {
+    const tryParseJSON = (text: any) => {
+      if (text && typeof text === 'object') return text;
+      const candidate = String(text).trim();
+      
+      // Try direct parse first
+      if (candidate.startsWith('{') || candidate.startsWith('[')) {
+        try { return JSON.parse(candidate); } catch (_) {}
+      }
+
+      // Try extraction from backticks or braces
+      try {
+        const match = candidate.match(/\{[\s\S]*\}/);
+        if (match) {
+          const extracted = match[0];
+          try { return JSON.parse(extracted); } catch (_) {
+            // Last ditch: clean invisible chars
+            try { return JSON.parse(extracted.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')); } catch (_) {}
+          }
+        }
+      } catch (_) {}
+
+      return null;
+    };
+
+    const parsedData = tryParseJSON(message.text);
+
+    if (parsedData && typeof parsedData === 'object' &&
+      (parsedData.reply || parsedData.cards || parsedData.itinerary || parsedData.route_summary)) {
+      
+      const cardLang = parsedData.lang || message.language || 'en';
+      const isDashboard = !!(parsedData.itinerary || parsedData.route_summary || parsedData.nearby_hotels);
+
+      const sentences = getSpeakableSegments(message.text, false);
+
+      return (
+        <div className="flex flex-col gap-3">
+          {sentences.length > 0 && (
+            <div className="flex flex-wrap gap-x-1.5 gap-y-1">
+              {sentences.map((sentence, i) => {
+                const isActive = highlightIndex === i;
+                const isPast = highlightIndex !== null && highlightIndex > i;
+                const isFuture = highlightIndex !== null && highlightIndex < i;
+
+                return (
+                  <motion.span
+                    key={i}
+                    id={`line-${message.id}-${i}`}
+                    animate={{ 
+                      scale: isActive ? 1.02 : 1,
+                      opacity: isFuture ? 0.35 : 1
+                    }}
+                    className={cn(
+                      "text-[14px] leading-relaxed rounded px-1.5 py-0.5 transition-all duration-500",
+                      isActive
+                        ? "font-bold shadow-sm"
+                        : "font-normal"
+                    )}
+                    style={isActive ? {
+                      backgroundColor: 'hsl(28 95% 55%)',
+                      color: '#ffffff',
+                    } : { 
+                      color: isPast ? 'hsl(224 10% 60%)' : 'hsl(224 15% 78%)' 
+                    }}
+                  >
+                    {sentence}
+                  </motion.span>
+                );
+              })}
+            </div>
+          )}
+          {isDashboard ? (
+            <StructuredResponse 
+                data={{ ...parsedData, messageId: message.id }} 
+                activeHighlightIndex={highlightIndex}
+                sentences={getSpeakableSegments(message.text)}
+              />
+          ) : (
+            parsedData.cards && Array.isArray(parsedData.cards) && parsedData.cards.length > 0 && (
+              <StructuredCards cards={parsedData.cards} lang={cardLang} />
+            )
+          )}
+        </div>
+      );
+    }
+
+    if (isBot && parsedData && typeof parsedData === 'object') {
+      return <StructuredResponse data={parsedData as any} />;
+    }
+
+    const textContent = String(message.text);
+
+    // User message — white on saffron bubble
+    if (!isBot) {
+      return (
+        <p className="text-[14px] leading-relaxed whitespace-pre-wrap font-medium text-white">
+          {textContent}
+        </p>
+      );
+    }
+
+    // Bot plain text — light on dark bubble
+    const sections = textContent.split(/(?=## )/g);
+    if (sections.length === 1 && !sections[0].startsWith('##')) {
+      return (
+        <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: 'hsl(224 15% 80%)' }}>
+          {textContent.replace(/\*\*/g, '').replace(/\*/g, '')}
+        </p>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-2.5 w-full">
+        {sections.map((sec, idx) => {
+          const cleanSec = sec.replace(/^## /, '').trim();
+          const [title, ...body] = cleanSec.split('\n');
+          const content = body.join('\n').trim();
+          if (!title && !content) return null;
+          return (
+            <div key={idx} className="p-3 rounded-xl"
+              style={{ background: 'rgba(255,160,50,0.05)', border: '1px solid rgba(255,160,50,0.12)' }}>
+              {title && (
+                <h3 className="text-sm font-bold mb-1.5 flex items-center gap-1.5"
+                  style={{ color: 'hsl(42 90% 68%)' }}>
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: 'hsl(28 95% 58%)' }} />
+                  {title.replace(/\*\*/g, '')}
+                </h3>
+              )}
+              <div className="text-[13px] leading-relaxed whitespace-pre-wrap" style={{ color: 'hsl(224 15% 72%)' }}>
+                {content.split('\n').map((line, i) => (
+                  <div key={i} className={cn(line.startsWith('•') || line.startsWith('-') ? "pl-2 mb-1" : "mb-0.5")}>
+                    {line.replace(/\*\*/g, '')}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const handleStartEdit = () => {
+    setEditingMessage(message.id, String(message.text));
+    setTimeout(() => {
+      const inputEl = document.getElementById('chat-input') as HTMLTextAreaElement | null;
+      if (inputEl) {
+        inputEl.focus();
+        inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+      }
+    }, 50);
+  };
+
+  const handleDelete = () => {
+    if (!showDeleteConfirm) {
+      setShowDeleteConfirm(true);
+      setTimeout(() => setShowDeleteConfirm(false), 3000);
+      return;
+    }
+    deleteMessage(message.id);
+    setShowDeleteConfirm(false);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className={cn(
+        'flex w-full mb-5 gap-2.5 group',
+        isBot ? 'justify-start' : 'justify-end'
+      )}
+    >
+      {/* Bot avatar */}
+      {isBot && (
+        <div
+          className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-md text-white mt-0.5"
+          style={{
+            background: 'linear-gradient(135deg, hsl(28 95% 45%), hsl(22 90% 35%) 50%, hsl(175 75% 30%) 100%)',
+            boxShadow: '0 4px 20px hsl(28 90% 45% / 0.4)',
+          }}
+        >
+          <Bot className="h-4 w-4" />
+        </div>
+      )}
+
+      <div className={cn(
+        "flex flex-col max-w-[95%] min-w-0 overflow-hidden",
+        isBot ? "items-start" : "items-end"
+      )}>
+        {/* ── Message Bubble ── */}
+        <div
+          className={cn(
+            'relative w-full overflow-hidden',
+            isBot
+              ? 'rounded-2xl rounded-tl-none'
+              : 'rounded-2xl rounded-tr-none'
+          )}
+          style={isBot ? {
+            background: 'linear-gradient(135deg, rgba(10,18,48,0.92), rgba(8,16,40,0.95))',
+            border: '1px solid rgba(255,160,50,0.1)',
+            borderLeft: '3px solid hsl(28 95% 52%)',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)',
+            padding: '14px 16px',
+          } : {
+            background: 'linear-gradient(135deg, hsl(28 90% 40%), hsl(22 85% 32%))',
+            boxShadow: '0 4px 24px hsl(28 90% 40% / 0.4)',
+            border: '1px solid hsl(28 90% 50% / 0.3)',
+            padding: '12px 16px',
+          }}
+        >
+          {/* Speaking shimmer effect */}
+          {isSpeaking && (
+            <div
+              className="absolute inset-0 pointer-events-none rounded-inherit"
+              style={{
+                background: 'linear-gradient(90deg, transparent 0%, hsl(28 95% 55% / 0.08) 50%, transparent 100%)',
+                backgroundSize: '200% auto',
+                animation: 'shimmer 2s linear infinite',
+              }}
+            />
+          )}
+          {renderContent()}
+        </div>
+
+        {/* ── Footer: time + speak + edit/delete ── */}
+        <div className="flex items-center gap-2 mt-1.5 px-1">
+          {/* Timestamp */}
+          <span className="text-[10px] font-medium" style={{ color: 'hsl(224 20% 45%)' }}>{time}</span>
+
+          {/* ── SPEAK BUTTON ── */}
+          {isBot && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleSpeak}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all duration-200",
+                isSpeaking
+                  ? ""
+                  : ""
+              )}
+              style={isSpeaking ? {
+                background: 'hsl(0 84% 55% / 0.12)',
+                border: '1px solid hsl(0 84% 55% / 0.25)',
+                color: 'hsl(0 84% 68%)'
+              } : {
+                background: 'hsl(28 95% 55% / 0.1)',
+                border: '1px solid hsl(28 95% 55% / 0.22)',
+                color: 'hsl(28 90% 68%)'
+              }}
+              title={isSpeaking ? "Stop speaking" : "Listen to this message"}
+            >
+              {isSpeaking ? (
+                <>
+                  {isPaused ? (
+                    <>
+                      <Volume2 className="h-3 w-3" />
+                      <span>Resume</span>
+                    </>
+                  ) : (
+                    <>
+                      <StopCircle className="h-3 w-3" />
+                      <span>Pause</span>
+                    </>
+                  )}
+                  <div className="h-3 w-[1px] bg-red-400/30 mx-0.5" />
+                  <span onClick={(e) => { e.stopPropagation(); stopSpeaking(); }} className="hover:underline">Stop</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 className="h-3 w-3" />
+                  <span>Speak</span>
+                </>
+              )}
+            </motion.button>
+          )}
+
+          {/* User message actions (edit + delete) */}
+          {!isBot && (
+            <AnimatePresence>
+              {isHovered && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.85, x: 10 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.85, x: 10 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex items-center gap-1"
+                >
+                  <button
+                    onClick={handleStartEdit}
+                    title="Edit message"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-500 border border-blue-100 hover:bg-blue-100 transition-all"
+                  >
+                    <Pencil size={10} />
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    title={showDeleteConfirm ? "Click again to confirm" : "Delete message"}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all",
+                      showDeleteConfirm
+                        ? "bg-red-100 text-red-600 border-red-300 animate-pulse"
+                        : "bg-slate-50 text-slate-400 border-slate-200 hover:bg-red-50 hover:text-red-500 hover:border-red-200"
+                    )}
+                  >
+                    <Trash2 size={10} />
+                    <span>{showDeleteConfirm ? "Confirm?" : "Delete"}</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+export default React.memo(ChatMessage);

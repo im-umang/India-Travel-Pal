@@ -1,0 +1,27 @@
+# General
+.DS_Store
+*.log
+.vscode/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.lovable/
+
+# Backend
+backend/__pycache__/
+backend/*.pyc
+backend/.env
+backend/backend.log
+backend/backend_error.log
+backend/*.txt
+backend/.venv/
+backend/venv/
+backend/env/
+
+# Workspace level
+.venv/
+.vscode/
+*.tmp
+~$*

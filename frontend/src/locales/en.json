@@ -1,0 +1,90 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "success": "Success",
+    "error": "Error",
+    "logout": "Logout",
+    "open_chat": "Open Chat",
+    "admin_panel": "Admin Panel",
+    "back": "Back"
+  },
+  "dashboard": {
+    "hero_badge": "AI-Powered Travel Assistant",
+    "namaste": "Namaste",
+    "tagline": "Discover incredible India. Plan perfect journeys with your personal AI travel guide.",
+    "start_planning": "Start Planning My Trip",
+    "features_label": "What I Can Help With",
+    "popular_destinations": "Popular Destinations",
+    "cta_title": "Ready for your next adventure?",
+    "cta_desc": "Ask me anything — from Himalayan treks to Kerala backwaters, budget to luxury!",
+    "footer_text": "Made with ❤️ for India travelers • AI-powered travel planning",
+    "stats": {
+      "destinations": "Destinations",
+      "routes": "Routes covered",
+      "languages": "Languages"
+    }
+  },
+  "chat": {
+    "input_placeholder": "Ask about destinations, budgets, or routes...",
+    "voice_input": "Voice Input",
+    "typing": "Bot is thinking...",
+    "new_chat": "New Chat",
+    "clear_all": "Clear All",
+    "empty_state": "Tell me — where do you want to go?",
+    "step_label": "Step {{step}} of 5",
+    "step_budget": "Budget",
+    "step_travel": "Travel",
+    "step_stay": "Stay",
+    "step_food": "Food",
+    "step_plan": "Plan"
+  },
+  "auth": {
+    "login_title": "Welcome back!",
+    "login_subtitle": "Sign in to continue your journey",
+    "register_title": "Create an account",
+    "register_subtitle": "Join thousands of travelers in India",
+    "email": "Email",
+    "password": "Password",
+    "full_name": "Full Name",
+    "sign_in": "Sign In",
+    "sign_up": "Sign Up",
+    "signing_in": "Signing in...",
+    "signing_up": "Creating account...",
+    "no_account": "Don't have an account?",
+    "have_account": "Already have an account?",
+    "create_account": "Create account",
+    "login_now": "Login now"
+  },
+  "profile": {
+    "title": "Profile",
+    "edit_profile": "Edit Profile",
+    "chat_history": "Chat History",
+    "start_new_trip": "Start New Trip",
+    "trips_planned": "Trips Planned",
+    "total_searches": "Total Searches",
+    "account_active": "Account Active",
+    "back_to_home": "Back to Home",
+    "go_to_settings": "Go to Account Settings"
+  },
+  "edit_profile": {
+    "title": "Edit Profile",
+    "full_name": "Full Name",
+    "email_address": "Email Address",
+    "save_changes": "Save Changes",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "back": "Back"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language Preferences",
+    "features": "Features & Tools",
+    "voice": "Voice Interactions",
+    "voice_desc": "Enable AI voice output and mic",
+    "updates": "Travel Updates",
+    "updates_desc": "Get alerts on flights and trains",
+    "account": "Account Management",
+    "clear_history": "Clear Chat History",
+    "version": "App Version"
+  }
+}
