@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, RotateCcw, Volume2, VolumeX, Menu, Wifi } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Volume2, VolumeX, Menu, Wifi, Compass } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -110,14 +110,9 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ toggleSidebar, isSidebarOpen })
               </div>
             </div>
             {/* Agent avatar */}
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-base shadow-md shrink-0"
-              style={{
-                background: 'linear-gradient(135deg, hsl(192 85% 28%), hsl(280 70% 45%), hsl(35 100% 50%))',
-                boxShadow: '0 3px 12px hsl(192 85% 35% / 0.35)',
-              }}
-            >
-              🇮🇳
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center shadow-md shrink-0 logo-ring"
+              style={{ background: 'linear-gradient(135deg, hsl(28 95% 45%), hsl(28 90% 35%))' }}>
+              <Compass className="h-4 w-4 text-white" />
             </div>
           </div>
 

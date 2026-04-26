@@ -127,19 +127,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
                     style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
                     <div className="flex items-center gap-2.5">
                         {/* Animated logo */}
-                        <div className="relative w-9 h-9 shrink-0">
-                            <div className="absolute inset-0 rounded-xl"
-                                style={{
-                                    background: 'conic-gradient(from 0deg, hsl(192 85% 45%), hsl(35 100% 52%), hsl(280 70% 55%), hsl(192 85% 45%))',
-                                    borderRadius: '10px',
-                                    padding: '1.5px',
-                                    animation: 'logoSpin 4s linear infinite',
-                                }}>
-                                <div className="w-full h-full rounded-[8px]"
-                                    style={{ background: '#0a0e27' }} />
+                        <div className="relative w-9 h-9 shrink-0 logo-ring rounded-xl">
+                            <div className="w-full h-full rounded-xl flex items-center justify-center"
+                                style={{ background: 'linear-gradient(135deg, hsl(28 95% 45%), hsl(28 90% 35%))' }}>
+                                <Compass className="h-4 w-4 text-white" />
                             </div>
-                            <Compass className="absolute inset-0 m-auto h-4 w-4"
-                                style={{ color: 'hsl(192 85% 55%)' }} />
                         </div>
                         <div className="leading-tight">
                             <div className="text-sm font-bold" style={{ color: 'rgba(255,255,255,0.95)' }}>

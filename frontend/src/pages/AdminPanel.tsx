@@ -278,9 +278,8 @@ const AdminPanel = () => {
             {/* Logo */}
             <div className="p-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shrink-0"
-                  style={{ background: 'linear-gradient(135deg,hsl(192 80% 30%),hsl(35 95% 55%))' }}>
-                  <ShieldCheck size={18} className="text-white" />
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shrink-0 logo-ring overflow-hidden">
+                   <img src="/logo.svg" alt="Logo" className="w-full h-full object-cover scale-110" />
                 </div>
                 <div>
                   <div className="text-white font-bold text-sm">Admin Panel</div>

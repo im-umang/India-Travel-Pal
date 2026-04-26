@@ -10,6 +10,9 @@
   <meta name="theme-color" content="#ea580c" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+  <link rel="shortcut icon" type="image/svg+xml" href="/logo.svg" />
+
   <meta property="og:title" content="India Travel Pal — AI Travel Companion" />
   <meta property="og:description"
     content="Plan your perfect trip across incredible India with our AI-powered travel chatbot." />
@@ -23,6 +26,48 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
     rel="stylesheet" />
+
+  <!-- Optimized Butter-Smooth Animated Favicon -->
+  <script>
+    (function () {
+      const canvas = document.createElement('canvas');
+      canvas.width = 32; canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.src = '/logo.svg';
+      let angle = 0;
+      let lastTime = 0;
+      
+      const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
+      link.type = 'image/png';
+      link.rel = 'shortcut icon';
+      if (!link.parentNode) document.head.appendChild(link);
+
+      function step(time) {
+        if (!lastTime) lastTime = time;
+        const delta = time - lastTime;
+        
+        // Update at ~30fps for extreme smoothness
+        if (delta > 33) {
+          ctx.clearRect(0, 0, 32, 32);
+          ctx.save();
+          ctx.translate(16, 16);
+          ctx.rotate(angle);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, -14, -14, 28, 28);
+          ctx.restore();
+          
+          link.href = canvas.toDataURL('image/png');
+          lastTime = time;
+        }
+        
+        angle += 0.015; // Elegant slow rotation
+        requestAnimationFrame(step);
+      }
+      img.onload = () => requestAnimationFrame(step);
+    })();
+  </script>
 </head>
 
 <body>

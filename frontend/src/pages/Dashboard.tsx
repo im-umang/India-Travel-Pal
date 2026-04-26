@@ -130,14 +130,13 @@ const Dashboard = () => {
           {/* Logo */}
           <div className="flex items-center gap-3">
             <div className="relative w-10 h-10 flex items-center justify-center logo-ring rounded-xl">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: 'linear-gradient(135deg, hsl(28 95% 45%), hsl(28 90% 35%))' }}>
-                <Compass className="h-5 w-5 text-white" />
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden">
+                <img src="/logo.svg" alt="Logo" className="w-full h-full object-cover scale-110" />
               </div>
             </div>
             <div className="hidden sm:block">
               <h1 className="font-bold text-base tracking-tight text-white/95">India Travel Pal</h1>
-              <p className="text-[11px] font-medium" style={{ color: 'hsl(42 70% 65%)' }}>{t('common.hero_badge') || 'Your AI Travel Companion'}</p>
+              <p className="text-[11px] font-medium" style={{ color: 'hsl(42 70% 65%)' }}></p>
             </div>
           </div>
 

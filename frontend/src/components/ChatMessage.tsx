@@ -79,7 +79,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
       const c = m ? m[1].trim() : t;
       if (!c.startsWith('{') && !c.startsWith('[')) return null;
       try { return JSON.parse(c); } catch (_) {
-        try { return JSON.parse(c.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')); } catch (_) { return null; }
+        try { return JSON.parse(c.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').replace(/\n/g, ' ')); } catch (_) { return null; }
       }
     };
     
@@ -94,14 +94,36 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
       .replace(/\*{1,3}(.*?)\*{1,3}/gs, '$1') // Clean bold/italic
       .trim();
 
-    // -- Truncate rawReply if it contains the itinerary to avoid double-speaking/displaying --
+    // -- Truncate rawReply if it contains redundant list data to avoid double-speaking/displaying --
     const hasItinerary = content?.itinerary && Array.isArray(content.itinerary) && content.itinerary.length > 0;
-    if (hasItinerary) {
-      const day1Match = rawReply.match(/Day\s*1|Day-1|Day\s*01/i);
-      if (day1Match && day1Match.index !== undefined) {
-        rawReply = rawReply.substring(0, day1Match.index).trim();
-        // Remove trailing "Here is your itinerary:" style phrases if they end the intro
-        rawReply = rawReply.replace(/(?:Here is|Here's|Proposed|Below is|Check out).*?:$/i, '').trim();
+    const hasTransport = (content?.train_options?.length || content?.bus_options?.length || content?.flight_options?.length);
+    const hasHotels = content?.nearby_hotels && Array.isArray(content.nearby_hotels) && content.nearby_hotels.length > 0;
+    const hasFood = content?.nearby_food && Array.isArray(content.nearby_food) && content.nearby_food.length > 0;
+
+    if (hasItinerary || hasTransport || hasHotels || hasFood) {
+      const listKeywords = [
+        /Day\s*1|Day-1|Day\s*01/i,           
+        /1\.\s+Train|Option 1:|Trains?:|Train\s*Options/i,
+        /1\.\s+Bus|Buses?:|Bus\s*Options/i,
+        /1\.\s+Flight|Flights?:|Flight\s*Options/i,
+        /Hotel 1|1\.\s+Hotel|Recommended Hotels:|Hotels?:/i,
+        /Restaurant 1|1\.\s+Restaurant|Top food|Restaurants?:|Food\s*items?:/i,
+        /\bOption 1\b/i,
+        /^\s*[\*\-]\s+/m // Catch any bullet points at start of line
+      ];
+
+      let earliestMatchIndex = Infinity;
+      for (const pattern of listKeywords) {
+        const match = rawReply.match(pattern);
+        if (match && match.index !== undefined && match.index < earliestMatchIndex) {
+          earliestMatchIndex = match.index;
+        }
+      }
+
+      if (earliestMatchIndex !== Infinity) {
+        rawReply = rawReply.substring(0, earliestMatchIndex).trim();
+        // Remove trailing "Here is your ..." style phrases
+        rawReply = rawReply.replace(/(?:Here is|Here's|Proposed|Below is|Check out|following|options|best choices|found for you).*?:$/i, '').trim();
       }
     }
 
@@ -134,23 +156,48 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
     if (rawReply) parts.push(rawReply);
 
-    // -- 2. ITINERARY DATA (If requested for TTS or full display) --
-    if (includeStructuredData && hasItinerary) {
-      content.itinerary.forEach((day: any) => {
-        const dayLabel = detectedLang === 'hi' ? `दिन ${day.day}` : `Day ${day.day}`;
-        parts.push(`${dayLabel}: ${day.title}`);
-        
-        if (day.activities && Array.isArray(day.activities)) {
-          day.activities.forEach((act: string) => {
-            parts.push(act);
+    // -- 2. STRUCTURED DATA (If requested for TTS or full display) --
+    if (includeStructuredData) {
+      // ITINERARY
+      if (hasItinerary) {
+        content.itinerary.forEach((day: any) => {
+          const dayLabel = detectedLang === 'hi' ? `दिन ${day.day}` : `Day ${day.day}`;
+          parts.push(`${dayLabel}: ${day.title}`);
+          if (day.activities && Array.isArray(day.activities)) parts.push(...day.activities);
+          if (day.tip) parts.push(`${detectedLang === 'hi' ? 'टिप' : 'Tip'}: ${day.tip}`);
+        });
+      }
+
+      // TRANSPORT
+      if (hasTransport) {
+        if (content.train_options) {
+          parts.push(detectedLang === 'hi' ? "ट्रेन के विकल्प:" : "Train Options:");
+          content.train_options.forEach((opt: any) => {
+            const price = opt.ticket_price ? Object.values(opt.ticket_price)[0] : (opt.price || '');
+            parts.push(`${opt.train_name || opt.name}, ${price}`);
           });
         }
-        
-        if (day.tip) {
-          const tipLabel = detectedLang === 'hi' ? `टिप` : `Tip`;
-          parts.push(`${tipLabel}: ${day.tip}`);
+        if (content.bus_options) {
+          parts.push(detectedLang === 'hi' ? "बस के विकल्प:" : "Bus Options:");
+          content.bus_options.forEach((opt: any) => parts.push(`${opt.operator_name || opt.name}, ${opt.fare || opt.price || ''}`));
         }
-      });
+        if (content.flight_options) {
+          parts.push(detectedLang === 'hi' ? "फ्लाइट के विकल्प:" : "Flight Options:");
+          content.flight_options.forEach((opt: any) => parts.push(`${opt.airline || opt.name}, ${opt.price || ''}`));
+        }
+      }
+
+      // HOTELS
+      if (hasHotels) {
+        parts.push(detectedLang === 'hi' ? "सुझाए गए होटल:" : "Recommended Hotels:");
+        content.nearby_hotels.forEach((h: any) => parts.push(`${h.hotel_name || h.name}, ${h.price_per_night || h.price || ''}`));
+      }
+
+      // FOOD
+      if (hasFood) {
+        parts.push(detectedLang === 'hi' ? "सुझाए गए रेस्टोरेंट:" : "Recommended Restaurants:");
+        content.nearby_food.forEach((f: any) => parts.push(`${f.restaurant_name || f.name}, ${f.approx_cost_for_two || f.cost || ''}`));
+      }
     }
 
     // 3. Add isolated Next Step to the very end
@@ -264,8 +311,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         if (match) {
           const extracted = match[0];
           try { return JSON.parse(extracted); } catch (_) {
-            // Last ditch: clean invisible chars
-            try { return JSON.parse(extracted.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')); } catch (_) {}
+            // Last ditch: clean invisible chars and literal newlines
+            try { return JSON.parse(extracted.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').replace(/\n/g, ' ')); } catch (_) {}
           }
         }
       } catch (_) {}

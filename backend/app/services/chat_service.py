@@ -225,6 +225,8 @@ class ChatService:
                 # More aggressive sanitization for common AI JSON errors
                 sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
                 sanitized = re.sub(r',(\s*[}\]])', r'\1', sanitized) # Remove trailing commas
+                # Replace literal newlines with spaces to avoid JSON string parse errors
+                sanitized = sanitized.replace('\n', ' ')
                 val = json.loads(sanitized)
                 return val if isinstance(val, dict) else None
             except:
