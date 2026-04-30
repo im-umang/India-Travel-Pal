@@ -467,7 +467,7 @@
     hsl(245 70% 58%),
     hsl(28 95% 58%)
   );
-  animation: logoSpin 6s linear infinite;
+  /* animation: logoSpin 6s linear infinite; */ /* Stopped rotation as per user request */
   z-index: -1;
 }
 

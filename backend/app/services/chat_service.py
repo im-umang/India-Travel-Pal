@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 # Models to try in order — optimized for speed and reliability
 MODELS = [
-    "models/gemini-2.0-flash-lite", 
     "models/gemini-flash-latest",
+    "models/gemini-2.0-flash-lite", 
     "models/gemini-2.0-flash",
     "models/gemini-2.5-flash",
     "models/gemini-flash-lite-latest",
@@ -121,40 +121,6 @@ class ChatService:
                     continue
 
             if response_text is None:
-                # ── LAST RESORT: LOCAL DATABASE FALLBACK / SIMULATION ──
-                # If ALL models have hit quota, we use local intelligence
-                if db is not None:
-                    try:
-                        # 1. Detection of Places
-                        potential_place = re.search(r'\b(Chandigarh|Delhi|Mumbai|Goa|Kerala|Jaipur|Agra|Shimla|Manali|Udaipur|Varanasi)\b', user_input, re.I)
-                        
-                        # 2. Handle generic "Aur bhi" or "Suggest something"
-                        if not potential_place and any(k in user_input.lower() for k in ["aur bhi", "suggest", "top", "list", "explore"]):
-                            # Suggest top 3 randomly from DB
-                            cursor = db.trips.find().limit(20)
-                            all_places = await cursor.to_list(length=20)
-                            import random
-                            choices = random.sample(all_places, k=min(3, len(all_places)))
-                            msg = "AI abhi break le raha hai, par main aapke liye kuch behtareen places suggest kar sakta hoon! 📍\n\n"
-                            for c in choices:
-                                msg += f"🇮🇳 *{c.get('name')}*: {c.get('highlights', 'Beautiful destination')}\n"
-                            msg += "\nInmein se aapko kya pasand aaya?"
-                            return self._text_response(msg, lang)
-
-                        # 3. Handle specific place info
-                        if potential_place:
-                            p_name = potential_place.group(0).title()
-                            place_info = await db.trips.find_one({"name": {"$regex": p_name, "$options": "i"}})
-                            if place_info:
-                                msg = f"Mere paas {p_name} ki special jaankari hai! 😊\n\n"
-                                msg += f"✨ Highlights: {place_info.get('highlights', 'Amazing site')}\n"
-                                msg += f"📅 Best time: {place_info.get('best_time', 'September to March')}\n"
-                                msg += f"💡 Tip: {place_info.get('tips', 'Carry comfortable shoes!')}\n\n"
-                                msg += "AI connection restore hote hi main aapka full plan bana doonga. Tab tak, kya iski detail doon?"
-                                return self._text_response(msg, lang)
-                    except Exception as fallback_err:
-                        logger.error(f"Simulation Error: {fallback_err}")
-                
                 return self._error_response("quota")
 
             # Parse JSON if possible
@@ -241,13 +207,13 @@ class ChatService:
 
     def _error_response(self, error_type: str = "general") -> Dict[str, Any]:
         if error_type == "quota":
-            msg = "Bataiye toh sahi! 😄 Log kaafi travel plans pooch rahe hain. AI thoda break le raha hai. Main 5 min mein aata hoon!"
+            msg = "I'm experiencing high traffic right now. Please try again in a moment!"
         elif error_type == "no_key":
-            msg = "Ops! Gemini API key nahi mil rahi."
+            msg = "API configuration missing. Please check server settings."
         else:
-            msg = "Swagat hai! 😄 Abhi server busy hai, par main aapke liye general travel advice de sakta hoon. Aap kahan ghumna chahte ho?"
+            msg = "I'm having trouble connecting to my brain. Let's try that again?"
         return {
-            "reply": msg, "lang": "hi", "intent_type": "error", "route_summary": None,
+            "reply": msg, "lang": "en", "intent_type": "error", "route_summary": None,
             "itinerary": [], "nearby_hotels": [], "nearby_food": [],
             "famous_food_items": [], "budget_summary": None,
             "flight_options": [], "train_options": [], "bus_options": []
