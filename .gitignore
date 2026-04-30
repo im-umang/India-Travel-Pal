@@ -25,3 +25,16 @@ backend/env/
 .vscode/
 *.tmp
 ~$*
+
+# Project Documentation & Reports
+Agile_Document_Part1.md
+Agile_Document_Part2.md
+College_Project_Report_First_Review.md
+College_Report_Sections_Part1.md
+College_Report_Sections_Part2.md
+DATA_DICTIONARY.md
+FINAL_PROJECT_DOCUMENTATION.md
+PRODUCTION_UPGRADE_PLAN.md
+Project_Report__AI_Travel_Intelligence_System.md
+PROJECT_SUMMARY_FOR_REPORT.md
+README.md
