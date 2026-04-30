@@ -1,0 +1,43 @@
+name: Auto ZIP Backup
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 18 * * *"   # daily 11:30 PM IST approx
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all branches
+
+      - name: Create ZIP
+        run: |
+          TIMESTAMP=$(date +'%Y-%m-%d-%H-%M')
+          ZIP_NAME="backup-${TIMESTAMP}.zip"
+          zip -r "$ZIP_NAME" . -x "*.git*"
+          echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Commit and Push to Backup Branch
+        run: |
+          git config --global user.name "backup-bot"
+          git config --global user.email "backup@bot.com"
+          
+          # Switch to backup branch
+          git checkout backup
+          
+          # Add the zip file (which was untracked in main)
+          git add "${{ env.ZIP_FILE }}"
+          
+          # Commit and push
+          git commit -m "Auto backup: ${{ env.ZIP_FILE }} [skip ci]"
+          git push origin backup
