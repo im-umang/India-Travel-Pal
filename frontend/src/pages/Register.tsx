@@ -18,6 +18,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 const registerSchema = z
   .object({
@@ -48,6 +49,7 @@ const Register = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const { register: registerUser } = useAuth();
+  const { toast } = useToast();
   const navigate = useNavigate();
 
   const form = useForm<RegisterFormData>({
@@ -65,9 +67,13 @@ const Register = () => {
         setIsLoading(false);
         return;
       }
+      
+      toast({
+        title: t('common.register_success'),
+        description: "Welcome to India Travel Pal! Your account is ready.",
+      });
+
       setSuccess(true);
-      // Since it now auto-logins, go straight to dashboard
-      navigate('/dashboard');
     } catch (err) {
       setError('Connection error. Make sure the server is running.');
     } finally {
@@ -162,17 +168,39 @@ const Register = () => {
           {/* Card — same glass-panel as Login */}
           <div className="glass-panel rounded-3xl p-8">
 
-            {/* Success state */}
             <AnimatePresence>
               {success && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex flex-col items-center justify-center py-8 text-center">
-                  <CheckCircle2 className="h-14 w-14 mb-4" style={{ color: 'hsl(28 95% 62%)' }} />
-                  <p className="text-white font-bold text-xl mb-1">{t('common.success')}</p>
-                  <p className="text-sm" style={{ color: 'hsl(224 20% 50%)' }}>Redirecting...</p>
-                </motion.div>
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center relative overflow-hidden"
+                  >
+                    {/* Background decorative element */}
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-400 to-emerald-500" />
+                    
+                    <div className="mb-6 flex justify-center">
+                      <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                        <CheckCircle2 className="h-12 w-12 text-green-500" />
+                      </div>
+                    </div>
+                    
+                    <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">
+                      Registration Successful
+                    </h3>
+                    
+                    <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+                      Welcome to India Travel Pal! Your account has been created successfully. Redirecting you to the dashboard...
+                    </p>
+                    
+                    <Button 
+                      onClick={() => navigate('/dashboard')}
+                      className="w-full h-12 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white font-bold transition-all shadow-lg"
+                    >
+                      OK
+                    </Button>
+                  </motion.div>
+                </div>
               )}
             </AnimatePresence>
 

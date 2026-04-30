@@ -2,6 +2,8 @@
   "common": {
     "loading": "Loading...",
     "success": "Success",
+    "login_success": "Login Successfully",
+    "register_success": "Registered Successfully",
     "error": "Error",
     "logout": "Logout",
     "open_chat": "Open Chat",

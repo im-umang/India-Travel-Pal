@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useTranslation } from 'react-i18next';
-import { LogIn, Eye, EyeOff, MapPin, Plane, Train, Compass } from 'lucide-react';
+import { LogIn, Eye, EyeOff, MapPin, Plane, Train, Compass, CheckCircle2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 const loginSchema = z.object({
   email: z.string().email('Valid email required'),
@@ -39,7 +40,9 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
+  const { toast } = useToast();
   const navigate = useNavigate();
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -52,10 +55,8 @@ const Login = () => {
     try {
       const result = await login(data.email, data.password);
       if (result.success) {
-        const stored = localStorage.getItem('user');
-        const loggedUser = stored ? JSON.parse(stored) : null;
-        const role = loggedUser?.role || '';
-        navigate(role === 'admin' ? '/admin' : '/dashboard');
+        setShowSuccessModal(true);
+        // We will navigate either on "OK" click or auto-after 3s
       } else {
         setError(result.error || 'Login failed. Please check your credentials.');
       }
@@ -64,6 +65,13 @@ const Login = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSuccessConfirm = () => {
+    const stored = localStorage.getItem('user');
+    const loggedUser = stored ? JSON.parse(stored) : null;
+    const role = loggedUser?.role || '';
+    navigate(role === 'admin' ? '/admin' : '/dashboard');
   };
 
   return (
@@ -244,6 +252,40 @@ const Login = () => {
           </div>
         </motion.div>
       </div>
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center relative overflow-hidden"
+          >
+            {/* Background decorative element */}
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-400 to-emerald-500" />
+            
+            <div className="mb-6 flex justify-center">
+              <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center animate-bounce-short">
+                <CheckCircle2 className="h-12 w-12 text-green-500" />
+              </div>
+            </div>
+            
+            <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">
+              Login Successful
+            </h3>
+            
+            <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+              Welcome back! Redirecting you to your personal travel dashboard...
+            </p>
+            
+            <Button 
+              onClick={handleSuccessConfirm}
+              className="w-full h-12 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white font-bold transition-all shadow-lg"
+            >
+              OK
+            </Button>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };

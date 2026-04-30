@@ -2,6 +2,8 @@
   "common": {
     "loading": "लोड हो रहा है...",
     "success": "सफलता",
+    "login_success": "लॉगिन सफल रहा",
+    "register_success": "पंजीकरण सफल रहा",
     "error": "त्रुटि",
     "logout": "लॉगआउट",
     "open_chat": "चैट खोलें",
