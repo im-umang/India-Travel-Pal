@@ -30,9 +30,9 @@ const LANGUAGE_VOICE_MAP: Record<string, string[]> = {
 
 // ─── Speech Settings per Language ─────────────────────────────────────────────
 const SPEECH_SETTINGS: Record<string, { rate: number; pitch: number; volume: number }> = {
-    hi: { rate: 1.05, pitch: 1.02, volume: 1.0 },
-    gu: { rate: 0.98, pitch: 1.0, volume: 1.0 },
-    en: { rate: 1.1, pitch: 1.05, volume: 1.0 },
+    hi: { rate: 1.15, pitch: 1.02, volume: 1.0 },
+    gu: { rate: 1.10, pitch: 1.0, volume: 1.0 },
+    en: { rate: 1.25, pitch: 1.05, volume: 1.0 },
 };
 
 // ─── Auto Language Detection ───────────────────────────────────────────────────
@@ -69,6 +69,62 @@ export function detectLanguage(text: string, langHint?: string): string {
 }
 
 let currentUtterance: SpeechSynthesisUtterance | null = null;
+
+// ─── User Interaction Tracker ─────────────────────────────────────────────────
+// Chrome/Edge block speechSynthesis.speak() until user has interacted with the page.
+// After first click/touch/keydown we "unlock" the engine with a silent utterance.
+let _userHasInteracted = false;
+const _unlockCallbacks: Array<() => void> = [];
+
+function unlockSpeechSynthesis(): void {
+  if (_userHasInteracted) return;
+  _userHasInteracted = true;
+  if ('speechSynthesis' in window) {
+    // Play a silent utterance to prime the engine
+    const silent = new SpeechSynthesisUtterance('');
+    silent.volume = 0;
+    silent.rate = 10;
+    try {
+      window.speechSynthesis.speak(silent);
+      window.speechSynthesis.cancel(); // immediately cancel — just needed the gesture
+    } catch (_) { /* ignore */ }
+  }
+  // Fire all pending unlock callbacks (e.g. greeting auto-speak waiting for interaction)
+  while (_unlockCallbacks.length > 0) {
+    const cb = _unlockCallbacks.shift();
+    if (cb) setTimeout(cb, 80); // small delay to let the unlock settle
+  }
+}
+
+if (typeof window !== 'undefined') {
+  const events = ['click', 'touchstart', 'keydown'] as const;
+  const handler = () => {
+    unlockSpeechSynthesis();
+    events.forEach(e => window.removeEventListener(e, handler));
+  };
+  events.forEach(e => window.addEventListener(e, handler, { once: true, passive: true }));
+}
+
+/** Returns true if user has interacted with the page (speech synthesis is unlocked) */
+export function isSpeechUnlocked(): boolean {
+  return _userHasInteracted;
+}
+
+/** Register a one-time callback for when speech synthesis gets unlocked (user first interacts).
+ *  If already unlocked, fires immediately. */
+export function onSpeechUnlock(cb: () => void): void {
+  if (_userHasInteracted) {
+    setTimeout(cb, 0);
+  } else {
+    _unlockCallbacks.push(cb);
+  }
+}
+
+/** Remove a pending unlock callback (cleanup on unmount) */
+export function offSpeechUnlock(cb: () => void): void {
+  const idx = _unlockCallbacks.indexOf(cb);
+  if (idx !== -1) _unlockCallbacks.splice(idx, 1);
+}
 
 // ─── Global speaking tracker ──────────────────────────────────────────────────
 // Tracks WHICH message is currently speaking — shared across all ChatMessage components

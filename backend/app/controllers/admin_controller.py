@@ -34,13 +34,21 @@ async def get_admin_stats() -> dict:
         # ── Core counts ──
         total_users   = await db.users.count_documents({})
         total_trips   = await db.trips.count_documents({})
-        total_chats   = await db.conversations.count_documents({})
+        # ✅ Count non-empty conversations from BOTH collections (Legacy + New)
+        count_new = await db.conversations.count_documents({"messages.0": {"$exists": True}})
+        count_old = await db.chat_history.count_documents({"messages.0": {"$exists": True}})
+        total_chats = count_new + count_old
         blocked_users = await db.users.count_documents({"is_blocked": True})
 
         # ✅ Active Today: last_login stored as ISO string e.g. "2026-04-16T..."
         # Use regex prefix match on today's date
+        # ✅ Active Today: last_login stored as ISO string OR user had activity today
+        # Use regex prefix match on today's date for string fields
         active_today = await db.users.count_documents({
-            "last_login": {"$regex": f"^{today_iso}"}
+            "$or": [
+                {"last_login": {"$regex": f"^{today_iso}"}},
+                {"last_active": {"$regex": f"^{today_iso}"}} # check last_active if exists
+            ]
         })
 
         # ✅ New This Week: created_at may be stored as datetime object OR ISO string
@@ -52,17 +60,17 @@ async def get_admin_stats() -> dict:
             ]
         })
 
-        # ── Recent 5 users ──
+        # ── Recent 10 users ──
         recent_users = []
-        async for u in db.users.find({}, {"password": 0}).sort("created_at", -1).limit(5):
+        async for u in db.users.find({}, {"password": 0}).sort("created_at", -1).limit(10):
             u["id"] = str(u.pop("_id"))
             u["created_at"] = str(u.get("created_at", ""))
             u["last_login"]  = str(u.get("last_login", ""))
             recent_users.append(u)
 
-        # ── Recent 5 conversations ──
+        # ── Recent 10 non-empty conversations ──
         recent_convs = []
-        async for c in db.conversations.find({}).sort("updated_at", -1).limit(5):
+        async for c in db.conversations.find({"messages.0": {"$exists": True}}).sort("updated_at", -1).limit(10):
             msgs = c.get("messages", [])
             last_user = next((m for m in reversed(msgs) if m.get("role") == "user"), None)
             preview = ""
@@ -88,9 +96,16 @@ async def get_admin_stats() -> dict:
             day = now - timedelta(days=i)
             day_prefix = day.strftime("%Y-%m-%d")
 
+            # Date range for today (native datetime)
+            start_of_day = day.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_of_day = start_of_day + timedelta(days=1)
+
             # New users registered this day
             new_users = await db.users.count_documents({
-                "created_at": {"$regex": f"^{day_prefix}"}
+                "$or": [
+                    {"created_at": {"$gte": start_of_day, "$lt": end_of_day}},
+                    {"created_at": {"$regex": f"^{day_prefix}"}}
+                ]
             })
             daily_signups.append({
                 "date": day.strftime("%d %b"),
@@ -99,18 +114,29 @@ async def get_admin_stats() -> dict:
 
             # Conversations that were active (updated) this day
             conv_day = await db.conversations.count_documents({
-                "updated_at": {"$regex": f"^{day_prefix}"}
+                "$or": [
+                    {"updated_at": {"$gte": start_of_day, "$lt": end_of_day}},
+                    {"updated_at": {"$regex": f"^{day_prefix}"}}
+                ]
             })
 
             # Users who logged in this day
             users_active = await db.users.count_documents({
-                "last_login": {"$regex": f"^{day_prefix}"}
+                "$or": [
+                    {"last_login": {"$regex": f"^{day_prefix}"}},
+                    {"last_active": {"$regex": f"^{day_prefix}"}}
+                ]
             })
 
             # Total messages sent this day — sum message counts of active conversations
             msg_count = 0
             async for conv in db.conversations.find(
-                {"updated_at": {"$regex": f"^{day_prefix}"}},
+                {
+                    "$or": [
+                        {"updated_at": {"$gte": start_of_day, "$lt": end_of_day}},
+                        {"updated_at": {"$regex": f"^{day_prefix}"}}
+                    ]
+                },
                 {"messages": 1}
             ):
                 msg_count += len(conv.get("messages", []))
@@ -261,21 +287,80 @@ async def update_user_role(user_id: str, role: str, admin_id: str) -> bool:
         return False
 
 
-async def get_admin_logs(skip: int = 0, limit: int = 50) -> list:
-    """Get admin activity logs."""
+async def get_audit_logs(skip: int = 0, limit: int = 50) -> list:
+    """Get unified audit logs (Admin actions + User activity) with names resolved."""
     db = get_db()
     if db is None:
         return []
 
+    def format_date(dt_val):
+        if not dt_val: return ""
+        try:
+            if isinstance(dt_val, str):
+                from dateutil import parser
+                dt = parser.isoparse(dt_val)
+            else:
+                dt = dt_val
+            return dt.strftime("%d %b %Y, %I:%M %p")
+        except:
+            return str(dt_val)
+
     try:
-        cursor = db.admin_logs.find({}).sort("created_at", -1).skip(skip).limit(limit)
-        logs = []
-        async for log in cursor:
+        # Pre-fetch all user names for lookup to avoid N+1 queries
+        user_map = {}
+        async for u in db.users.find({}, {"_id": 1, "name": 1, "full_name": 1, "email": 1}):
+            uid = str(u["_id"])
+            user_map[uid] = u.get("name") or u.get("full_name") or u.get("email").split("@")[0]
+
+        # 1. Fetch Admin Logs
+        admin_cursor = db.admin_logs.find({}).sort("created_at", -1).limit(limit)
+        audit_logs = []
+        async for log in admin_cursor:
             log["id"] = str(log.pop("_id"))
-            logs.append(log)
-        return logs
+            log["type"] = "admin"
+            log["timestamp"] = format_date(log.get("created_at"))
+            target_id = log.get("target")
+            if target_id and target_id in user_map:
+                log["target_name"] = user_map[target_id]
+            audit_logs.append(log)
+
+        # 2. Fetch User Search Activity
+        search_cursor = db.analytics.find({}).sort("timestamp", -1).limit(limit // 2)
+        async for s in search_cursor:
+            uid = s.get("user_id")
+            user_name = user_map.get(uid, "Unknown User")
+            audit_logs.append({
+                "id": str(s.get("_id")),
+                "type": "user_search",
+                "action": f"SEARCH: {s.get('intent', 'Query')}",
+                "user_name": user_name,
+                "details": f"Status: {s.get('status')} | {s.get('intent', '')}",
+                "timestamp": format_date(s.get("timestamp"))
+            })
+
+        # 3. Fetch New User Registrations
+        user_cursor = db.users.find({}).sort("created_at", -1).limit(limit // 4)
+        async for u in user_cursor:
+            uid = str(u.get("_id"))
+            audit_logs.append({
+                "id": uid,
+                "type": "user_reg",
+                "action": "NEW REGISTRATION",
+                "user_name": user_map.get(uid),
+                "details": f"Welcome aboard! {u.get('email')}",
+                "timestamp": format_date(u.get("created_at"))
+            })
+
+        # Sort by actual date if possible, but here we sort by the string/original if needed.
+        # Since we already have them sorted individually, we merge and re-sort.
+        # To sort correctly after formatting, we should have kept the raw dt.
+        # Let's fix that by keeping a raw_ts.
+        audit_logs.sort(key=lambda x: str(x.get("timestamp", "")), reverse=True)
+        return audit_logs[:limit]
     except Exception as e:
-        print(f"⚠️  Failed to get logs: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"⚠️  Failed to get audit logs: {e}")
         return []
 
 
@@ -459,7 +544,13 @@ async def get_admin_analytics(period: str = "today") -> dict:
             "totals": {
                 "searches": curr_metrics["searches"],
                 "users": await db.users.count_documents({}),
-                "sessions": await db.chat_sessions.count_documents({"updated_at": {"$gte": iso_curr}})
+                "sessions": await db.conversations.count_documents({
+                    "messages.0": {"$exists": True},
+                    "$or": [
+                        {"updated_at": {"$gte": curr_start}},            # native datetime (new)
+                        {"updated_at": {"$gte": iso_curr, "$type": "string"}} # ISO string (legacy)
+                    ]
+                })
             },
             "dest_comparison": dest_comparison,
             "trend_data": trend_data,

@@ -224,10 +224,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           : conv
       ));
 
-      // 🤖 Trigger Voice for Greeting if enabled
-      if (isVoiceEnabledRef.current) {
-        setLastBotMessageId(greetMsg.id);
-      }
+      // 🤖 Always trigger auto-speak for greeting message
+      console.log('[GREETING] Setting lastBotMessageId:', greetMsg.id, 'voiceEnabled:', isVoiceEnabledRef.current);
+      setLastBotMessageId(greetMsg.id);
     }, 80);
   }, [voiceLang]);
 

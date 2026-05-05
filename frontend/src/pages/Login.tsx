@@ -164,7 +164,7 @@ const Login = () => {
             </div>
 
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5" autoComplete="off">
                 {/* Error */}
                 {error && (
                   <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
@@ -181,6 +181,7 @@ const Login = () => {
                       <FormLabel className="text-sm font-semibold" style={{ color: 'hsl(224 15% 65%)' }}>{t('auth.email')}</FormLabel>
                       <FormControl>
                         <Input type="email" placeholder="your@email.com" {...field}
+                          autoComplete="off"
                           className="h-12 rounded-xl border-0 text-white text-sm font-medium placeholder:text-white/20 focus:ring-2 focus:ring-offset-0 transition-all"
                           style={{
                             background: 'rgba(255,255,255,0.05)',
@@ -202,6 +203,7 @@ const Login = () => {
                       <FormControl>
                         <div className="relative">
                           <Input type={showPassword ? 'text' : 'password'} placeholder="Enter your password" {...field}
+                            autoComplete="new-password"
                             className="h-12 rounded-xl border-0 text-white text-sm placeholder:text-white/20 pr-12 transition-all"
                             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
                           />

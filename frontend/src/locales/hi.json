@@ -33,7 +33,7 @@
     "new_chat": "नई चैट",
     "clear_all": "सभी मिटाएं",
     "empty_state": "बताइए — आप कहाँ जाना चाहते हैं?",
-    "step_label": "चरण {{step}} का 5",
+    "step_label": "स्टेप {{step}} / 5",
     "step_budget": "बजट",
     "step_travel": "यात्रा",
     "step_stay": "रुकना",

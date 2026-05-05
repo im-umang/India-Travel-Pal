@@ -111,13 +111,13 @@ async def update_role(
 
 
 @router.get("/logs")
-async def activity_logs(
+async def audit_logs(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     admin: dict = Depends(get_current_admin),
 ):
-    """Get admin activity logs."""
-    logs = await admin_controller.get_admin_logs(skip=skip, limit=limit)
+    """Get unified audit logs (Admin + User activity)."""
+    logs = await admin_controller.get_audit_logs(skip=skip, limit=limit)
     return {"success": True, "logs": logs, "count": len(logs)}
 
 
@@ -127,28 +127,88 @@ async def all_chat_history(
     limit: int = Query(50, ge=1, le=100),
     admin: dict = Depends(get_current_admin),
 ):
-    """Get all users chat history (using conversations collection)."""
+    """Get all users chat history grouped by user (using chat_history collection)."""
     from app.database import get_db
+    from bson import ObjectId
     db = get_db()
     if db is None:
         return {"success": True, "chats": [], "count": 0}
     try:
-        # Use conversations collection as it's the primary storage
-        cursor = db.conversations.find({}).sort("updated_at", -1).skip(skip).limit(limit)
-        chats = []
-        async for c in cursor:
-            c["id"] = str(c.pop("_id"))
-            # Normalize messages field if it exists
-            msgs = c.get("messages", [])
-            for m in msgs:
-                if isinstance(m.get("content"), dict):
-                    m["content"] = m["content"].get("reply") or m["content"].get("message") or "[Structured data]"
-            c["messages"] = msgs
-            chats.append(c)
-        total = await db.conversations.count_documents({})
-        return {"success": True, "chats": chats, "count": total}
+        # We need to fetch from BOTH collections and merge
+        # 1. Get from conversations (new system)
+        pipeline = [
+            {"$sort": {"updated_at": -1}},
+            {
+                "$group": {
+                    "_id": "$user_id",
+                    "conversations": {"$push": "$$ROOT"},
+                    "last_active": {"$max": "$updated_at"},
+                    "total_messages": {"$sum": {"$size": "$messages"}}
+                }
+            }
+        ]
+        
+        user_map = {} # user_id -> chat_data
+
+        # Helper to process a cursor from either collection
+        async def process_cursor(cursor):
+            async for group in cursor:
+                uid = str(group["_id"]) if group["_id"] else "guest"
+                
+                # Fetch user details if not already fetched
+                user_name = "Guest User"
+                user_email = ""
+                if uid != "guest":
+                    try:
+                        user_doc = await db.users.find_one({"_id": ObjectId(uid) if ObjectId.is_valid(uid) else uid})
+                        if user_doc:
+                            user_name = user_doc.get("full_name") or user_doc.get("name") or user_doc.get("email", "").split("@")[0] or "Traveler"
+                            user_email = user_doc.get("email", "")
+                    except: pass
+
+                # Normalize conversations
+                convs = []
+                for c in group["conversations"]:
+                    c["id"] = str(c.pop("_id"))
+                    msgs = c.get("messages", [])
+                    for m in msgs:
+                        content = m.get("content") or m.get("user_message") or m.get("bot_reply")
+                        if isinstance(content, dict):
+                            m["content"] = content.get("reply") or content.get("message") or "[Data Card]"
+                        else:
+                            m["content"] = content
+                    c["messages"] = msgs
+                    convs.append(c)
+
+                if uid in user_map:
+                    user_map[uid]["conversations"].extend(convs)
+                    user_map[uid]["total_messages"] += group["total_messages"]
+                    if group["last_active"] and (not user_map[uid]["updated_at"] or group["last_active"] > user_map[uid]["updated_at"]):
+                        user_map[uid]["updated_at"] = group["last_active"]
+                else:
+                    user_map[uid] = {
+                        "user_id": uid,
+                        "user_name": user_name,
+                        "user_email": user_email,
+                        "conversations": convs,
+                        "total_messages": group["total_messages"],
+                        "updated_at": group["last_active"]
+                    }
+
+        # Run for both collections
+        await process_cursor(db.conversations.aggregate(pipeline))
+        await process_cursor(db.chat_history.aggregate(pipeline))
+        
+        # Sort by last_active and apply pagination
+        all_chats = sorted(user_map.values(), key=lambda x: str(x["updated_at"] or ""), reverse=True)
+        paginated = all_chats[skip : skip + limit]
+        
+        return {"success": True, "chats": paginated, "count": len(all_chats)}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"success": False, "error": str(e), "chats": [], "count": 0}
+
 
 
 @router.get("/conversations")

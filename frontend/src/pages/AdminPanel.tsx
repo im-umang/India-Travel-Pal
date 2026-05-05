@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { config } from '@/config';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -40,14 +40,14 @@ interface UserDoc {
 }
 
 
-interface ChatMsg { 
-  user_message?: string; 
-  bot_reply?: string; 
-  role?: string; 
-  content?: string; 
-  intent?: string; 
-  confidence?: number; 
-  timestamp: string; 
+interface ChatMsg {
+  user_message?: string;
+  bot_reply?: string;
+  role?: string;
+  content?: string;
+  intent?: string;
+  confidence?: number;
+  timestamp: string;
 }
 interface ChatSession { user_id: string; session_id: string; updated_at: string; messages: ChatMsg[]; }
 interface ConvMsg { role: string; content: string; language?: string; timestamp: string; }
@@ -62,7 +62,14 @@ interface Analytics {
   travel_modes: { name: string; value: number }[];
   performance: { success: number; total: number; avg_latency: number };
 }
-interface Conversation { id: string; user_id: string; title?: string; created_at: string; updated_at: string; message_count?: number; messages?: ConvMsg[]; }
+interface UserChatGroup {
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  conversations: Conversation[];
+  total_messages: number;
+  updated_at: string;
+}
 interface LogEntry { id: string; admin_id: string; action: string; target?: string; details?: string; created_at: string; }
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -71,7 +78,7 @@ const NAV: { id: Tab; label: string; icon: React.ReactNode; desc: string }[] = [
   { id: 'analytics', label: 'Insights', icon: <TrendingUp size={17} />, desc: 'Deep data analytics' },
   { id: 'users', label: 'Travelers', icon: <Users size={17} />, desc: 'Manage users' },
   { id: 'chats', label: 'Chat History', icon: <MessageSquare size={17} />, desc: 'AI conversations' },
-  { id: 'logs', label: 'Activity Logs', icon: <Activity size={17} />, desc: 'Admin actions' },
+  { id: 'logs', label: 'Audit Log', icon: <Activity size={17} />, desc: 'User & Admin activity' },
 ];
 
 const containerVariants = {
@@ -116,14 +123,19 @@ const fmtD = (iso?: string) => { if (!iso) return '—'; try { return new Date(i
 
 // ─── Main Component ───────────────────────────────────────────────────
 const AdminPanel = () => {
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Initialize tab from URL search params, fallback to 'overview'
+  const initialTab = (searchParams.get('tab') as Tab) || 'overview';
+  const [tab, setTab] = useState<Tab>(initialTab);
+
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today');
   const [stats, setStats] = useState<Stats | null>(null);
   const [analytics, setAnalytics] = useState<any>(null);
   const [users, setUsers] = useState<UserDoc[]>([]);
-  const [chats, setChats] = useState<ChatSession[]>([]);
+  const [chats, setChats] = useState<UserChatGroup[]>([]);
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -135,9 +147,21 @@ const AdminPanel = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Sync tab state with URL
+  useEffect(() => {
+    setSearchParams({ tab });
+  }, [tab, setSearchParams]);
+
   const hdr = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-  useEffect(() => { if (user && user.role !== 'admin') navigate('/dashboard'); }, [user, navigate]);
+  // Improved redirect: Only redirect if auth is LOADED and user is NOT admin
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user || user.role !== 'admin') {
+        navigate('/dashboard');
+      }
+    }
+  }, [user, authLoading, navigate]);
 
   // ── Fetchers ──
   const fetchStats = useCallback(async () => {
@@ -159,21 +183,31 @@ const AdminPanel = () => {
   const fetchChats = useCallback(async () => {
     setLoading(true);
     try {
-      // Always load users for name mapping
+      // Always load users for name mapping (kept for legacy if needed)
       if (users.length === 0) {
         const ur = await fetch(`${API}/admin/users?limit=100`, { headers: hdr });
         const ud = await ur.json();
         if (ud.success) setUsers(ud.users);
       }
-      // Try chat_history first
+
+      // Fetch grouped chat history
       const r = await fetch(`${API}/admin/chat-history?limit=100`, { headers: hdr });
       const d = await r.json();
-      if (d.success && d.chats?.length > 0) { setChats(d.chats); setLoading(false); return; }
-      // Fallback: conversations collection
-      const r2 = await fetch(`${API}/admin/conversations?limit=100`, { headers: hdr });
-      const d2 = await r2.json();
-      if (d2.success) setConvs(d2.conversations || []);
-    } catch { }
+
+      if (d.success) {
+        if (d.chats && d.chats.length > 0) {
+          setChats(d.chats);
+          setConvs([]); // Clear convs as we use grouped chats now
+        } else {
+          // Fallback: conversations collection (flat list)
+          const r2 = await fetch(`${API}/admin/conversations?limit=100`, { headers: hdr });
+          const d2 = await r2.json();
+          if (d2.success) setConvs(d2.conversations || []);
+        }
+      }
+    } catch (err) {
+      console.error("Fetch chats error:", err);
+    }
     setLoading(false);
   }, [token, users.length]);
 
@@ -276,10 +310,12 @@ const AdminPanel = () => {
             style={{ background: 'rgba(6,13,26,0.97)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,255,255,0.07)', zIndex: 50 }}>
 
             {/* Logo */}
-            <div className="p-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+            <div className="p-5 border-b cursor-pointer hover:bg-white/[0.02] transition-colors"
+              style={{ borderColor: 'rgba(255,255,255,0.07)' }}
+              onClick={() => navigate('/')}>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shrink-0 logo-ring overflow-hidden">
-                   <img src="/logo.svg" alt="Logo" className="w-full h-full object-cover scale-110" />
+                  <img src="/logo.svg" alt="Logo" className="w-full h-full object-cover scale-110" />
                 </div>
                 <div>
                   <div className="text-white font-bold text-sm">Admin Panel</div>
@@ -302,7 +338,7 @@ const AdminPanel = () => {
                   {tab === item.id && <ChevronRight size={13} className="ml-auto text-teal-400 shrink-0" />}
                 </button>
               ))}
-              <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              {/* <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                 <p className="text-[10px] text-slate-600 font-semibold uppercase tracking-widest px-3 mb-3">Quick Access</p>
                 {[{ label: 'User Dashboard', icon: <Home size={14} />, to: '/dashboard' }, { label: 'Open Chat', icon: <MessageSquare size={14} />, to: '/chat' }].map(q => (
                   <button key={q.to} onClick={() => navigate(q.to)}
@@ -310,7 +346,7 @@ const AdminPanel = () => {
                     {q.icon} {q.label}
                   </button>
                 ))}
-              </div>
+              </div> */}
             </nav>
 
             <div className="p-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
@@ -321,7 +357,7 @@ const AdminPanel = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold text-white truncate">{adminName}</div>
-                  <div className="text-[10px] text-amber-400 flex items-center gap-1"><Star size={9} fill="currentColor" />Super Admin</div>
+                  {/* <div className="text-[10px] text-amber-400 flex items-center gap-1"><Star size={9} fill="currentColor" />Super Admin</div> */}
                 </div>
                 <button onClick={() => { logout(); navigate('/login'); }} className="text-slate-600 hover:text-red-400 transition-colors"><LogOut size={15} /></button>
               </div>
@@ -341,9 +377,11 @@ const AdminPanel = () => {
               <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <span className="text-white font-semibold text-sm">{NAV.find(n => n.id === tab)?.label}</span>
-          <ChevronRight size={13} className="text-slate-600" />
-          <span className="text-slate-500 text-xs">{NAV.find(n => n.id === tab)?.desc}</span>
+          <div className="flex items-center gap-2 cursor-pointer group" onClick={() => setTab('overview')}>
+            <span className="text-white font-semibold text-sm group-hover:text-teal-400 transition-colors">{NAV.find(n => n.id === tab)?.label}</span>
+            <ChevronRight size={13} className="text-slate-600 group-hover:text-teal-600" />
+            <span className="text-slate-500 text-xs group-hover:text-slate-400 transition-colors">{NAV.find(n => n.id === tab)?.desc}</span>
+          </div>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => { fetchStats(); if (tab === 'users') fetchUsers(); if (tab === 'chats') fetchChats(); if (tab === 'logs') fetchLogs(); }}
               className="text-slate-500 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/5"><RefreshCw size={14} /></button>
@@ -419,19 +457,16 @@ const AdminPanel = () => {
                     <h3 className="text-white font-semibold text-sm flex items-center gap-2">
                       <Users size={13} className="text-blue-400" />Recent Travelers
                     </h3>
-                    <button onClick={() => setTab('users')} className="text-[11px] text-teal-400 hover:text-teal-300 flex items-center gap-1 transition-colors">
-                      View all<ChevronRight size={11} />
-                    </button>
                   </div>
                   {!stats?.recent_users?.length ? (
-                    <div className="space-y-3">{[0, 1, 2, 3].map(i => (
+                    <div className="space-y-3">{[0, 1, 2, 3, 4].map(i => (
                       <div key={i} className="flex items-center gap-3 animate-pulse">
                         <div className="w-8 h-8 rounded-xl bg-white/10 shrink-0" />
                         <div className="flex-1"><div className="h-3 w-24 rounded bg-white/10 mb-1" /><div className="h-2 w-32 rounded bg-white/5" /></div>
                       </div>
                     ))}</div>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-2 custom-scrollbar">
                       {stats.recent_users.map((u, i) => {
                         const name = u.name || u.full_name || u.email.split('@')[0];
                         return (
@@ -440,9 +475,9 @@ const AdminPanel = () => {
                             <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white text-xs shrink-0 ${u.role === 'admin' ? 'bg-gradient-to-br from-amber-500 to-orange-600' : 'bg-gradient-to-br from-teal-600 to-cyan-700'}`}>
                               {name.charAt(0).toUpperCase()}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-semibold text-white truncate">{name}</div>
-                              <div className="text-[10px] text-slate-600 truncate">{u.email}</div>
+                            <div className="flex-1 min-w-0 cursor-pointer group/name" onClick={() => setTab('overview')}>
+                              <div className="text-xs font-semibold text-white truncate group-hover/name:text-teal-400 transition-colors">{name}</div>
+                              <div className="text-[10px] text-slate-600 truncate group-hover/name:text-slate-400">{u.email}</div>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               {u.role === 'admin' && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-bold">ADMIN</span>}
@@ -461,18 +496,15 @@ const AdminPanel = () => {
                     <h3 className="text-white font-semibold text-sm flex items-center gap-2">
                       <MessageSquare size={13} className="text-teal-400" />Recent Conversations
                     </h3>
-                    <button onClick={() => setTab('chats')} className="text-[11px] text-teal-400 hover:text-teal-300 flex items-center gap-1 transition-colors">
-                      View all<ChevronRight size={11} />
-                    </button>
                   </div>
                   {!stats?.recent_conversations?.length ? (
-                    <div className="space-y-3">{[0, 1, 2, 3].map(i => (
+                    <div className="space-y-3">{[0, 1, 2, 3, 4].map(i => (
                       <div key={i} className="rounded-xl p-3 animate-pulse" style={{ background: 'rgba(255,255,255,0.02)' }}>
                         <div className="h-3 w-32 rounded bg-white/10 mb-2" /><div className="h-2 w-full rounded bg-white/5" />
                       </div>
                     ))}</div>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-2 custom-scrollbar">
                       {stats.recent_conversations.map((c, i) => (
                         <motion.div key={c.id} variants={itemVariants}
                           className="flex items-start gap-3 p-3 rounded-xl hover:bg-white/[0.03] cursor-pointer transition-all hover:scale-[1.02] group"
@@ -816,9 +848,9 @@ const AdminPanel = () => {
                             <div className={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center font-bold text-white text-sm ${u.role === 'admin' ? 'bg-gradient-to-br from-amber-500 to-orange-600' : 'bg-gradient-to-br from-teal-600 to-cyan-700'}`}>
                               {name.charAt(0).toUpperCase()}
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium text-white truncate">{name}</div>
-                              <div className="text-[11px] text-slate-500 truncate">{u.email}</div>
+                            <div className="min-w-0 cursor-pointer group/name" onClick={() => setTab('overview')}>
+                              <div className="text-sm font-medium text-white truncate group-hover/name:text-teal-400 transition-colors">{name}</div>
+                              <div className="text-[11px] text-slate-500 truncate group-hover/name:text-slate-400">{u.email}</div>
                             </div>
                           </div>
                           <div className="col-span-2 hidden md:flex items-center gap-1.5">
@@ -857,9 +889,21 @@ const AdminPanel = () => {
           {/* ═══════════ CHAT HISTORY ═══════════ */}
           {tab === 'chats' && (
             <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-              <div>
-                <h2 className="text-xl font-bold text-white">Chat History</h2>
-                <p className="text-sm text-slate-500">{chats.length + convs.length} conversation sessions</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white">Chat History</h2>
+                  <p className="text-sm text-slate-500">
+                    {chats.length > 0
+                      ? `${chats.length} users with active sessions`
+                      : `${convs.length} conversation sessions`
+                    }
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={fetchChats} className="p-2 bg-white/5 hover:bg-white/10 rounded-xl text-slate-400 transition-all">
+                    <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                  </button>
+                </div>
               </div>
 
               {loading ? (
@@ -876,116 +920,98 @@ const AdminPanel = () => {
               ) : (
                 <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-2.5">
 
-                  {/* ── chat_history sessions ── */}
-                  {chats.map((chat, i) => {
-                    const key = `ch-${chat.user_id}-${chat.session_id}`;
+                  {/* ── Grouped User Chats ── */}
+                  {chats.map((group, i) => {
+                    const key = `user-group-${group.user_id}`;
                     const isExp = expandedChat === key;
-                    const msgCount = chat.messages?.length || 0;
-                    // Lookup user
-                    const owner = users.find(u => u.id === chat.user_id);
-                    const ownerName = owner?.full_name || owner?.name || owner?.email?.split('@')[0] || 'Unknown';
-                    const ownerEmail = owner?.email || '';
-                    const initials = ownerName.charAt(0).toUpperCase();
-                    // Last message preview
-                    const lastMsg = chat.messages?.[chat.messages.length - 1];
-                    let preview = '';
-                    if (lastMsg) {
-                      const raw = lastMsg.user_message || lastMsg.content || lastMsg.bot_reply;
-                      if (typeof raw === 'string') {
-                        if (raw.startsWith('{')) {
-                          try { const p = JSON.parse(raw); preview = p.reply || p.message || raw; } catch { preview = raw; }
-                        } else { preview = raw; }
-                      }
-                    }
+                    const initials = group.user_name.charAt(0).toUpperCase();
 
                     return (
                       <motion.div key={key} variants={itemVariants}
-                        className="rounded-2xl border overflow-hidden transition-all hover:scale-[1.01] hover:shadow-lg group"
-                        style={{ borderColor: isExp ? 'rgba(20,184,166,0.35)' : 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                        className="rounded-2xl border overflow-hidden transition-all"
+                        style={{
+                          borderColor: isExp ? 'rgba(20,184,166,0.35)' : 'rgba(255,255,255,0.06)',
+                          background: isExp ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.02)'
+                        }}>
 
-                        {/* Row header */}
-                        <button className="w-full flex items-center gap-3 px-5 py-4 hover:bg-white/[0.025] transition-colors text-left"
+                        {/* User Header */}
+                        <button className="w-full flex items-center gap-4 px-6 py-5 hover:bg-white/[0.025] transition-colors text-left"
                           onClick={() => setExpandedChat(isExp ? null : key)}>
 
-                          {/* User avatar */}
-                          <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm shadow-lg">
+                          <div className="w-12 h-12 shrink-0 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center font-black text-white text-lg shadow-xl shadow-teal-500/10">
                             {initials}
                           </div>
 
-                          {/* Info */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-white">{ownerName}</span>
-                              {ownerEmail && <span className="text-[10px] text-slate-500 hidden sm:block">{ownerEmail}</span>}
-                              <span className="ml-auto text-[10px] text-teal-500 shrink-0">{msgCount} msg{msgCount !== 1 ? 's' : ''}</span>
+                            <div className="flex items-center gap-3 cursor-pointer group/name" onClick={() => setTab('overview')}>
+                              <span className="text-base font-bold text-white group-hover/name:text-teal-400 transition-colors">{group.user_name}</span>
+                              <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 text-teal-400 text-[10px] font-black uppercase tracking-widest border border-teal-500/20">
+                                {group.conversations.length} {group.conversations.length === 1 ? 'Session' : 'Sessions'}
+                              </span>
                             </div>
-                            <div className="flex items-center gap-3 mt-0.5">
-                              {preview ? (
-                                <p className="text-[11px] text-slate-500 truncate flex-1 font-medium">"{preview.slice(0, 70)}{preview.length > 70 ? '...' : ''}"</p>
-                              ) : (
-                                <p className="text-[11px] text-slate-700 italic flex-1">Messages</p>
-                              )}
-                              <span className="text-[10px] text-slate-600 shrink-0"><Clock size={9} className="inline mr-0.5" />{fmt(chat.updated_at)}</span>
+                            <div className="flex items-center gap-4 mt-1">
+                              <span className="text-xs text-slate-500 truncate">{group.user_email}</span>
+                              <span className="text-xs text-slate-600 flex items-center gap-1.5">
+                                <Clock size={10} /> Last active: {fmt(group.updated_at)}
+                              </span>
                             </div>
                           </div>
 
-                          {/* Expand arrow */}
-                          <motion.div animate={{ rotate: isExp ? 180 : 0 }} transition={{ duration: 0.2 }} className="shrink-0">
-                            <ChevronDown size={14} className="text-slate-600" />
+                          <motion.div animate={{ rotate: isExp ? 180 : 0 }} transition={{ duration: 0.3 }} className="p-2 rounded-full bg-white/5 text-slate-400">
+                            <ChevronDown size={16} />
                           </motion.div>
                         </button>
 
-                        {/* Expanded messages */}
+                        {/* Sessions List */}
                         <AnimatePresence>
                           {isExp && (
                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                              className="border-t overflow-hidden" style={{ borderColor: 'rgba(20,184,166,0.12)' }}>
-                              <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
-                                {(chat.messages || []).map((msg, mi) => {
-                                  const isUser = msg.role === 'user' || (msg.user_message && !msg.bot_reply);
-                                  const initials = ownerName.charAt(0).toUpperCase();
+                              className="border-t border-white/5 bg-black/20">
+                              <div className="p-5 space-y-3">
+                                {group.conversations.map((conv, ci) => {
+                                  const cKey = `conv-${conv.id}`;
+                                  const isCExp = expandedChat === cKey;
+                                  const lastMsgObj = conv.messages?.[conv.messages.length - 1];
+                                  const lastMsg = typeof lastMsgObj?.content === 'string' ? lastMsgObj.content : 'No preview available';
 
                                   return (
-                                    <div key={mi} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                                      <div className={`rounded-2xl px-3 py-2.5 max-w-[80%] border ${isUser 
-                                        ? 'bg-violet-600/12 border-violet-500/15 rounded-tr-none' 
-                                        : 'bg-teal-600/8 border-teal-500/12 rounded-tl-none'
-                                      }`}>
-                                        <div className="flex items-center gap-1.5 mb-1">
-                                          {isUser ? (
-                                            <>
-                                              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-[8px] font-bold text-white shrink-0">{initials}</div>
-                                              <span className="text-[10px] text-violet-400 font-semibold">{ownerName}</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center shrink-0"><Bot size={8} className="text-white" /></div>
-                                              <span className="text-[10px] text-teal-400 font-semibold">AI Travel Guide</span>
-                                            </>
-                                          )}
-                                          <span className="text-[9px] text-slate-700 ml-auto">{msg.timestamp ? fmt(msg.timestamp) : ''}</span>
+                                    <div key={conv.id} className="rounded-xl border border-white/5 bg-white/[0.02] overflow-hidden">
+                                      <button className="w-full p-4 flex items-center gap-3 hover:bg-white/5 transition-colors text-left"
+                                        onClick={(e) => { e.stopPropagation(); setExpandedChat(isCExp ? key : cKey); }}>
+                                        <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                                          <MessageSquare size={14} />
                                         </div>
-                                        
-                                        <div className="text-xs leading-relaxed" style={{ color: isUser ? '#e2e8f0' : '#94a3b8' }}>
-                                          {(() => {
-                                            const raw = isUser ? (msg.user_message || msg.content) : (msg.bot_reply || msg.content);
-                                            if (!raw) return '[No content]';
-                                            if (typeof raw === 'string') {
-                                              if (raw.trim().startsWith('{')) {
-                                                try {
-                                                  const p = JSON.parse(raw);
-                                                  return p.reply || p.message || p.text || raw;
-                                                } catch { return raw; }
-                                              }
-                                              return raw.slice(0, 400) + (raw.length > 400 ? '…' : '');
-                                            }
-                                            if (typeof raw === 'object' && raw !== null) {
-                                              return (raw as any).reply || (raw as any).message || (raw as any).text || JSON.stringify(raw).slice(0, 100);
-                                            }
-                                            return '[No message content]';
-                                          })()}
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-sm font-semibold text-slate-200">{conv.title || `Chat ${ci + 1}`}</span>
+                                            <span className="text-[10px] text-slate-500">{fmt(conv.updated_at)}</span>
+                                          </div>
+                                          <p className="text-[11px] text-slate-500 truncate mt-0.5">"{lastMsg.slice(0, 80)}{lastMsg.length > 80 ? '...' : ''}"</p>
                                         </div>
-                                      </div>
+                                        <ChevronRight size={14} className={`text-slate-600 transition-transform ${isCExp ? 'rotate-90' : ''}`} />
+                                      </button>
+
+                                      {/* Messages of this specific conversation */}
+                                      {isCExp && (
+                                        <div className="p-4 pt-0 border-t border-white/5 space-y-3 bg-black/40 max-h-[400px] overflow-y-auto custom-scrollbar">
+                                          <div className="pt-4" />
+                                          {conv.messages?.map((msg, mi) => (
+                                            <div key={mi} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                              <div className={`rounded-2xl px-4 py-3 max-w-[85%] shadow-lg ${msg.role === 'user'
+                                                ? 'bg-indigo-600 text-white rounded-tr-none'
+                                                : 'bg-slate-800 text-slate-200 rounded-tl-none border border-white/5'
+                                                }`}>
+                                                <div className="flex items-center gap-2 mb-1.5 opacity-60">
+                                                  {msg.role === 'user' ? <UserIcon size={10} /> : <Bot size={10} />}
+                                                  <span className="text-[9px] font-bold uppercase tracking-widest">{msg.role === 'user' ? group.user_name : 'AI Guide'}</span>
+                                                  <span className="ml-auto text-[8px]">{fmt(msg.timestamp)}</span>
+                                                </div>
+                                                <div className="text-xs leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })}
@@ -1110,8 +1136,8 @@ const AdminPanel = () => {
             <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
-                  <h2 className="text-xl font-bold text-white">Activity Logs</h2>
-                  <p className="text-sm text-slate-500">{logs.length} admin actions recorded</p>
+                  <h2 className="text-xl font-bold text-white">Audit Log</h2>
+                  <p className="text-sm text-slate-500">{logs.length} system activities recorded</p>
                 </div>
                 {logs.length > 0 && (
                   <div className="flex flex-wrap gap-2">
@@ -1136,8 +1162,8 @@ const AdminPanel = () => {
               ) : logs.length === 0 ? (
                 <div className="text-center py-20 text-slate-500">
                   <Activity size={48} className="mx-auto mb-3 opacity-20" />
-                  <p className="text-sm font-medium">No activity logs yet</p>
-                  <p className="text-xs mt-1 text-slate-600">Admin actions generate logs automatically</p>
+                  <p className="text-sm font-medium">No audit logs yet</p>
+                  <p className="text-xs mt-1 text-slate-600">System actions generate logs automatically</p>
                 </div>
               ) : (
                 <motion.div variants={containerVariants} initial="hidden" animate="visible" className="rounded-2xl border overflow-hidden" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
@@ -1163,10 +1189,14 @@ const AdminPanel = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={`text-xs font-bold ${cfg.text} uppercase tracking-wider`}>{(log.action || '').replace(/_/g, ' ')}</span>
-                            {log.target && <span className="text-[10px] font-medium bg-white/5 text-slate-400 px-2 py-0.5 rounded-lg border border-white/5">{log.target}</span>}
+                            {(log.target_name || log.user_name) && (
+                              <span className="text-[10px] font-bold bg-teal-500/10 text-teal-400 px-2 py-0.5 rounded-lg border border-teal-500/20 uppercase tracking-widest">
+                                {log.target_name || log.user_name}
+                              </span>
+                            )}
                           </div>
                           {log.details && <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{log.details}</p>}
-                          <p className="text-[10px] text-slate-600 mt-1"><Clock size={8} className="inline mr-1" />{fmt(log.created_at)}</p>
+                          <p className="text-[10px] text-slate-600 mt-1"><Clock size={10} className="inline mr-1" />{log.timestamp}</p>
                         </div>
                       </motion.div>
                     );
@@ -1178,6 +1208,26 @@ const AdminPanel = () => {
 
         </main>
       </div>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 20px;
+          transition: all 0.3s;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(20, 184, 166, 0.4);
+        }
+        .custom-scrollbar {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+        }
+      `}</style>
     </div>
   );
 };

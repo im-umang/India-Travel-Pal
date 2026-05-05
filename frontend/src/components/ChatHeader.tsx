@@ -6,6 +6,18 @@ import { Button } from '@/components/ui/button';
 import { useChat } from '@/context/ChatContext';
 import { stopSpeaking } from '@/lib/voiceService';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
+import { LogOut } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface ChatHeaderProps {
   toggleSidebar: () => void;
@@ -15,6 +27,8 @@ interface ChatHeaderProps {
 const ChatHeader: React.FC<ChatHeaderProps> = ({ toggleSidebar, isSidebarOpen }) => {
   const navigate = useNavigate();
   const { resetChat, isVoiceEnabled, toggleVoice, conversations, currentConversationId } = useChat();
+  const { logout } = useAuth();
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
   const [isAnySpeaking, setIsAnySpeaking] = useState(false);
 
@@ -37,6 +51,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ toggleSidebar, isSidebarOpen })
     } else {
       toggleVoice();
     }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
   };
 
   return (
@@ -104,10 +123,10 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ toggleSidebar, isSidebarOpen })
           <div className="hidden md:flex items-center gap-3 mr-3">
             <div className="flex flex-col items-end">
               <span className="text-xs font-semibold text-slate-700">India Travel Pal</span>
-              <div className="flex items-center gap-1">
+              {/* <div className="flex items-center gap-1">
                 <Wifi size={9} className="text-emerald-500" />
                 <span className="text-[10px] text-slate-400">Real-time AI</span>
-              </div>
+              </div> */}
             </div>
             {/* Agent avatar */}
             <div className="w-8 h-8 rounded-xl flex items-center justify-center shadow-md shrink-0 logo-ring"
@@ -117,7 +136,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ toggleSidebar, isSidebarOpen })
           </div>
 
           {/* ── Voice Button ── */}
-          <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+          {/* <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
             <Button
               variant="ghost"
               size="icon"
@@ -143,7 +162,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ toggleSidebar, isSidebarOpen })
           </motion.div>
 
           {/* ── Reset Button ── */}
-          <motion.div whileHover={{ rotate: 180 }} transition={{ duration: 0.4 }}>
+          {/* <motion.div whileHover={{ rotate: 180 }} transition={{ duration: 0.4 }}>
             <Button
               variant="ghost"
               size="icon"
@@ -154,8 +173,42 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ toggleSidebar, isSidebarOpen })
               <RotateCcw className="h-4 w-4" />
             </Button>
           </motion.div>
+
+          {/* ── Logout Button ── */}
+          <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowLogoutDialog(true)}
+              className="h-8 w-8 rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50 transition-all"
+              title="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </motion.div>
         </div>
       </div>
+
+      {/* Logout Confirmation Dialog */}
+      <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
+        <AlertDialogContent className="bg-white border border-slate-200 text-slate-900">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Logout Confirmation</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-500">
+              Are you sure you want to log out? You will need to sign in again to access your travel plans.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-slate-100 border-none hover:bg-slate-200 text-slate-700">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleLogout}
+              className="bg-red-500 hover:bg-red-600 text-white border-none"
+            >
+              Log Out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.header>
   );
 };

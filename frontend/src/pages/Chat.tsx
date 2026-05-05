@@ -10,7 +10,7 @@ import ChatInput from '@/components/ChatInput';
 import TypingIndicator from '@/components/TypingIndicator';
 import ChatSidebar from '@/components/ChatSidebar';
 import ProFeatureBanner from '@/components/ProFeatureBanner';
-import { Bot, Sparkles, Plane, Train, Hotel, Map } from 'lucide-react';
+import { Bot, Sparkles, Plane, Train, Hotel, Map, Wallet, Utensils, Calendar, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { stopSpeaking } from '@/lib/voiceService';
 
@@ -155,12 +155,13 @@ const EmptyState: React.FC = () => {
 const StepProgress: React.FC = () => {
   const { t } = useTranslation();
   const { currentStep } = useChat();
+  
   const steps = [
-    { n: 1, label: 'Budget' },
-    { n: 2, label: 'Travel' },
-    { n: 3, label: 'Stay' },
-    { n: 4, label: 'Food' },
-    { n: 5, label: 'Plan' },
+    { n: 1, label: 'Budget', icon: <Wallet size={12} /> },
+    { n: 2, label: 'Travel', icon: <Plane size={12} /> },
+    { n: 3, label: 'Stay', icon: <Hotel size={12} /> },
+    { n: 4, label: 'Food', icon: <Utensils size={12} /> },
+    { n: 5, label: 'Plan', icon: <Sparkles size={12} /> },
   ];
 
   if (currentStep === 0) return null;
@@ -168,7 +169,7 @@ const StepProgress: React.FC = () => {
   return (
     <div className="px-4 py-3 bg-white/80 border-b border-slate-100 backdrop-blur-sm sticky top-0 z-20">
       <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-1">
           {steps.map((s, i) => {
             const isCompleted = currentStep > s.n;
             const isActive = currentStep === s.n;
@@ -182,11 +183,11 @@ const StepProgress: React.FC = () => {
                       scale: isActive ? 1.15 : 1,
                     }}
                     className={cn(
-                      "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black transition-colors shadow-sm",
+                      "w-7 h-7 rounded-full flex items-center justify-center transition-all shadow-sm",
                       isActive || isCompleted ? "text-white" : "text-slate-400"
                     )}
                   >
-                    {isCompleted ? '✓' : s.n}
+                    {isCompleted ? <Check size={14} /> : s.icon}
                   </motion.div>
                   <span className={cn(
                     "text-[9px] font-bold uppercase tracking-tight",
@@ -314,7 +315,7 @@ const ChatLayout: React.FC = () => {
       {/* ── Main Chat Panel (frosted glass over royal bg) ── */}
       <div className={cn(
         "flex-1 flex flex-col h-full transition-all duration-300 ease-in-out relative z-10 min-w-0",
-        isSidebarOpen && !isMobile ? "ml-64" : "ml-0"
+        isSidebarOpen && !isMobile ? "ml-80" : "ml-0"
       )}>
         {/* Glass chat area — solid white light panel */}
         <div className="flex flex-col h-full"

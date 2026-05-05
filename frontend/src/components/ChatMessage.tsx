@@ -4,20 +4,20 @@ import { useChat } from '@/context/ChatContext';
 import {
   speak,
   stopSpeaking,
-  pauseSpeaking,
-  resumeSpeaking,
-  isPaused as isSpeakingPaused,
   getCurrentSpeakingId,
   setSpeakingId,
   detectLanguage,
   registerOnSpeakStart,
   registerOnSpeakEnd,
   unregisterOnSpeakStart,
-  unregisterOnSpeakEnd
+  unregisterOnSpeakEnd,
+  isSpeechUnlocked,
+  onSpeechUnlock,
+  offSpeechUnlock
 } from '@/lib/voiceService';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, Volume2, VolumeX, Pencil, Trash2, StopCircle } from 'lucide-react';
+import { Bot, Volume2, Pencil, Trash2, StopCircle } from 'lucide-react';
 import StructuredResponse from './travel/StructuredResponse';
 import StructuredCards from './travel/StructuredCards';
 
@@ -33,7 +33,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const isBot = message.sender === 'bot';
   const { deleteMessage, setEditingMessage, isTyping, lastBotMessageId, clearLastBotMessageId } = useChat();
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -42,7 +41,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const resetSpeech = React.useCallback(() => {
     speakingRef.current = false;
     setIsSpeaking(false);
-    setIsPaused(false);
     setHighlightIndex(null);
   }, []);
 
@@ -57,13 +55,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
     registerOnSpeakStart(checkState);
     registerOnSpeakEnd(checkState);
-
-    const interval = setInterval(() => {
-        setIsPaused(isSpeakingPaused());
-    }, 200);
     
     return () => {
-      clearInterval(interval);
       unregisterOnSpeakStart(checkState);
       unregisterOnSpeakEnd(checkState);
     };
@@ -145,15 +138,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
       }
     }
 
-    // 0. Step Indicator announcement
     const detectedLang = content?.lang || message.language || 'en';
-    if (content?.current_step) {
-      const stepText = detectedLang === 'hi' 
-        ? `चरण ${content.current_step}.` 
-        : `Step ${content.current_step} of 5.`;
-      parts.push(stepText);
-    }
-
     if (rawReply) parts.push(rawReply);
 
     // -- 2. STRUCTURED DATA (If requested for TTS or full display) --
@@ -200,8 +185,52 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
       }
     }
 
+    // -- 2.5 TRAVEL INTELLIGENCE SUMMARY (Nice wrap-up) --
+    if (includeStructuredData) {
+      let finalSummary = "";
+      const dest = content.route_summary?.to || content.route_summary?.destination || "";
+      
+      if (hasTransport) {
+        if (content.train_options?.length) {
+          const top = content.train_options[0];
+          const price = top.ticket_price ? (Object.values(top.ticket_price)[0]) : (top.price || "");
+          finalSummary += detectedLang === 'hi' 
+            ? `कुल मिलाकर, आपकी यात्रा के लिए ${content.train_options.length} ट्रेनें उपलब्ध हैं। ${top.train_name}${price ? `, जो ${price} से शुरू होती है,` : ""} एक बेहतरीन विकल्प है। `
+            : `In summary, there are ${content.train_options.length} train options available. ${top.train_name}${price ? `, starting at ${price},` : ""} is a great choice for your trip. `;
+        } else if (content.flight_options?.length) {
+          finalSummary += detectedLang === 'hi'
+            ? `आपके लिए ${content.flight_options.length} फ्लाइट्स के विकल्प मिले हैं। `
+            : `I've found ${content.flight_options.length} flight options for your journey. `;
+        }
+      }
+      
+      if (hasHotels && content.nearby_hotels?.length) {
+        finalSummary += detectedLang === 'hi'
+          ? `मैंने रुकने के लिए ${content.nearby_hotels.length} शानदार होटल्स भी ढूँढे हैं। `
+          : `I've also listed ${content.nearby_hotels.length} premium hotel options for your stay. `;
+      }
+
+      if (hasItinerary && content.itinerary?.length) {
+        finalSummary += detectedLang === 'hi'
+          ? `आपका ${content.itinerary.length} दिनों का ${dest ? dest + " का " : ""}पूरा ट्रिप प्लान अब तैयार है। `
+          : `Your complete ${content.itinerary.length}-day itinerary ${dest ? "to " + dest : ""} is now ready. `;
+      }
+
+      if (finalSummary) {
+        parts.push(detectedLang === 'hi' ? `सारांश: ${finalSummary.trim()}` : `Summary: ${finalSummary.trim()}`);
+      }
+    }
+
     // 3. Add isolated Next Step to the very end
     if (nextStepPart) parts.push(nextStepPart);
+
+    // -- 4. FRIENDLY SIGN-OFF (Clear end cue) --
+    if (isBot) {
+      const signOff = detectedLang === 'hi'
+        ? "आशा है कि यह जानकारी आपके काम आएगी! क्या मैं आपकी और किसी तरह मदद कर सकता हूँ?"
+        : "I hope this helps! Is there anything else I can assist you with?";
+      parts.push(signOff);
+    }
 
     // Split into sentences / segments
     const finalSentences: string[] = [];
@@ -221,18 +250,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     });
     
     return finalSentences;
-  }, [message.language, message.id]);
+  }, [message.language, message.id, isBot]);
 
   // ── New Granular TTS reader (Sentence by Sentence) ──
   const startReading = (sentences: string[], lang: string) => {
     if (getCurrentSpeakingId() === message.id) {
-       if (isSpeakingPaused()) {
-         resumeSpeaking();
-         setIsPaused(false);
-         return;
-       }
-       pauseSpeaking();
-       setIsPaused(true);
+       // Already speaking this message — stop it
+       stopSpeaking();
        return;
     }
     stopSpeaking();
@@ -241,7 +265,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
     speakingRef.current = true;
     setIsSpeaking(true);
-    setIsPaused(false);
     setHighlightIndex(0);
     setSpeakingId(message.id, resetSpeech);
 
@@ -278,17 +301,36 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     startReading(sentences, lang);
   }, [message.id, message.text, message.language, getSpeakableSegments]);
 
+  // Ref to avoid stale closure + prevent effect re-runs when handleSpeak reference changes
+  const handleSpeakRef = useRef(handleSpeak);
+  useEffect(() => { handleSpeakRef.current = handleSpeak; }, [handleSpeak]);
+
   // ── Auto-speak trigger for NEW messages ──
   useEffect(() => {
+    console.log('[AUTO-SPEAK] Effect fired. isBot:', isBot, 'lastBotMessageId:', lastBotMessageId, 'message.id:', message.id, 'match:', lastBotMessageId === message.id);
     if (isBot && lastBotMessageId === message.id) {
-      // Small timeout to ensure component is fully rendered
-      const timer = setTimeout(() => {
-        handleSpeak();
+      const doSpeak = () => {
+        console.log('[AUTO-SPEAK] doSpeak() called, invoking handleSpeak');
+        handleSpeakRef.current();
         clearLastBotMessageId();
-      }, 100);
-      return () => clearTimeout(timer);
+      };
+
+      if (isSpeechUnlocked()) {
+        console.log('[AUTO-SPEAK] Speech UNLOCKED, setting 150ms timer');
+        const timer = setTimeout(doSpeak, 150);
+        return () => clearTimeout(timer);
+      } else {
+        console.log('[AUTO-SPEAK] Speech LOCKED, registering onSpeechUnlock callback');
+        const unlockHandler = () => {
+          console.log('[AUTO-SPEAK] Speech just UNLOCKED! Speaking now...');
+          setTimeout(doSpeak, 150);
+        };
+        onSpeechUnlock(unlockHandler);
+        return () => offSpeechUnlock(unlockHandler);
+      }
     }
-  }, [isBot, lastBotMessageId, message.id, handleSpeak, clearLastBotMessageId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBot, lastBotMessageId, message.id, clearLastBotMessageId]);
 
   const time = new Date(message.timestamp).toLocaleTimeString('en-IN', {
     hour: '2-digit', minute: '2-digit'
@@ -528,22 +570,26 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
           {/* Timestamp */}
           <span className="text-[10px] font-medium" style={{ color: 'hsl(224 20% 45%)' }}>{time}</span>
 
-          {/* ── SPEAK BUTTON ── */}
+          {/* ── SPEAK / STOP BUTTON ── */}
           {isBot && (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={handleSpeak}
+              onClick={() => {
+                if (isSpeaking) {
+                  stopSpeaking();
+                } else {
+                  handleSpeak();
+                }
+              }}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all duration-200",
-                isSpeaking
-                  ? ""
-                  : ""
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all duration-200"
               )}
               style={isSpeaking ? {
-                background: 'hsl(0 84% 55% / 0.12)',
-                border: '1px solid hsl(0 84% 55% / 0.25)',
-                color: 'hsl(0 84% 68%)'
+                background: 'hsl(0 84% 55% / 0.15)',
+                border: '1px solid hsl(0 84% 55% / 0.35)',
+                color: 'hsl(0 84% 62%)',
+                boxShadow: '0 0 8px hsl(0 84% 55% / 0.2)'
               } : {
                 background: 'hsl(28 95% 55% / 0.1)',
                 border: '1px solid hsl(28 95% 55% / 0.22)',
@@ -553,19 +599,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             >
               {isSpeaking ? (
                 <>
-                  {isPaused ? (
-                    <>
-                      <Volume2 className="h-3 w-3" />
-                      <span>Resume</span>
-                    </>
-                  ) : (
-                    <>
-                      <StopCircle className="h-3 w-3" />
-                      <span>Pause</span>
-                    </>
-                  )}
-                  <div className="h-3 w-[1px] bg-red-400/30 mx-0.5" />
-                  <span onClick={(e) => { e.stopPropagation(); stopSpeaking(); }} className="hover:underline">Stop</span>
+                  <StopCircle className="h-3 w-3" />
+                  <span>Stop</span>
+                  {/* Animated pulse dot */}
+                  <span className="relative flex h-2 w-2 ml-0.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-60"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  </span>
                 </>
               ) : (
                 <>

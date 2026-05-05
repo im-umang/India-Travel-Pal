@@ -14,6 +14,16 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
     Plus,
     MessageSquare,
     MessagesSquare,
@@ -58,6 +68,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
     // ── Filter empty chats ──
     const visibleConversations = conversations.filter(
@@ -79,17 +90,22 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
         deleteConversation(id);
     };
 
-    const handleClearAll = () => {
-        if (!showClearConfirm) {
-            setShowClearConfirm(true);
-            setTimeout(() => setShowClearConfirm(false), 3000);
-            return;
-        }
-        conversations.forEach((c: Conversation) => {
-            if (c.id !== currentConversationId) deleteConversation(c.id);
-        });
-        setShowClearConfirm(false);
-    };
+    // const handleClearAll = () => {
+    //     if (!showClearConfirm) {
+    //         setShowClearConfirm(true);
+    //         setTimeout(() => setShowClearConfirm(false), 3000);
+    //         return;
+    //     }
+    //     conversations.forEach((c: Conversation) => {
+    //         if (c.id !== currentConversationId) deleteConversation(c.id);
+    //     });
+    //     setShowClearConfirm(false);
+    // };
+
+    // const handleLogout = () => {
+    //     logout();
+    //     navigate('/login');
+    // };
 
     return (
         <>
@@ -111,7 +127,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
                 className={cn(
                     "fixed inset-y-0 left-0 z-50 flex flex-col transition-all duration-300 ease-in-out",
                     "sidebar-royal",
-                    isOpen ? "w-64 translate-x-0" : "-translate-x-full",
+                    isOpen ? "w-80 translate-x-0" : "-translate-x-full",
                 )}
             >
                 {/* Decorative orbs inside sidebar */}
@@ -137,11 +153,27 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
                             <div className="text-sm font-bold" style={{ color: 'rgba(255,255,255,0.95)' }}>
                                 India Travel Pal
                             </div>
-                            <div className="flex items-center gap-1" style={{ color: 'hsl(192 85% 55%)' }}>
+                            {/* <div className="flex items-center gap-1" style={{ color: 'hsl(192 85% 55%)' }}>
                                 <Sparkles size={8} />
                                 <span className="text-[9px] font-semibold tracking-wide">AI Travel Assistant</span>
-                            </div>
+                            </div> */}
                         </div>
+                    </div>
+
+                    {/* ── Sidebar Toggle Button (Floating) ── */}
+                    <div className="absolute left-full top-2 ml-2 z-50">
+                        <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={toggleSidebar}
+                            className={cn(
+                                "flex items-center justify-center w-10 h-10 rounded-xl shadow-lg transition-all",
+                                "bg-white/95 backdrop-blur-md border border-slate-200 text-teal-600 hover:text-teal-700"
+                            )}
+                            title={isOpen ? "Close sidebar" : "Open sidebar"}
+                        >
+                            {isOpen ? <PanelLeftClose size={20} /> : <Menu size={20} />}
+                        </motion.button>
                     </div>
                 </div>
 
@@ -171,7 +203,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
                                     <MessagesSquare size={9} />
                                     Recent Chats ({visibleConversations.length})
                                 </span>
-                                {visibleConversations.length > 1 && (
+                                {/* {visibleConversations.length > 1 && (
                                     <button
                                         onClick={handleClearAll}
                                         className={cn(
@@ -183,7 +215,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
                                     >
                                         {showClearConfirm ? "Confirm?" : "Clear All"}
                                     </button>
-                                )}
+                                )} */}
                             </div>
 
                             {/* Conversation items */}
@@ -226,7 +258,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
                                             </div>
 
                                             {/* Title + Preview */}
-                                            <div className="flex-1 min-w-0 pr-5">
+                                            <div className="flex-1 min-w-0 pr-8">
                                                 <div className="text-xs font-semibold truncate leading-tight"
                                                     style={{ color: isActive ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.65)' }}>
                                                     {chat.title || "New Chat"}
@@ -336,19 +368,40 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, toggleSidebar, isMobi
                                     </DropdownMenuItem>
                                 </>
                             )}
-                            <DropdownMenuSeparator style={{ background: 'rgba(255,255,255,0.08)' }} />
+                            {/* <DropdownMenuSeparator style={{ background: 'rgba(255,255,255,0.08)' }} />
                             <DropdownMenuItem
                                 className="cursor-pointer gap-2 focus:bg-red-400/10 hover:bg-red-400/10"
                                 style={{ color: 'hsl(0 80% 60%)' }}
-                                onClick={() => { logout(); navigate('/login'); }}
+                                onClick={() => setShowLogoutDialog(true)}
                             >
                                 <LogOut className="h-4 w-4" />
                                 <span>Log out</span>
-                            </DropdownMenuItem>
+                            </DropdownMenuItem> */}
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
             </div>
+
+            {/* Logout Confirmation Dialog */}
+            {/* <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
+                <AlertDialogContent className="bg-[#0f1d3a] border border-white/10 text-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-slate-400">
+                            You will be logged out of your account. You'll need to sign in again to access your saved trips.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel className="bg-white/5 border-white/10 hover:bg-white/10 text-white">Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleLogout}
+                            className="bg-red-500 hover:bg-red-600 text-white border-none"
+                        >
+                            Log Out
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog> */}
         </>
     );
 };
